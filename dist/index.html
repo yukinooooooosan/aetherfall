@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#172d32">
+  <meta name="description" content="翼をひらき、世界をほどく。高速飛行とボクセル破壊の3Dサンドボックス。">
+  <title>AETHERFALL — 神域の残響</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c5a46b' d='m16 1 5 10 10 5-10 5-5 10-5-10-10-5 10-5z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main id="game" aria-label="AETHERFALL 3D飛行ゲーム">
+    <canvas id="world" aria-label="破壊可能な島と城の3Dワールド"></canvas>
+    <div class="vignette"></div><div id="damage-flash"></div>
+    <header>
+      <a class="brand" href="./" aria-label="AETHERFALL タイトルへ"><span class="brand-mark">✧</span><div>AETHERFALL<small>神域の残響</small></div></a>
+      <div class="top-status"><i></i> FLIGHT PROTOTYPE <span>/ 01</span></div>
+      <nav aria-label="ゲーム設定">
+        <button id="audio" class="icon-button" title="サウンドの切り替え" aria-label="サウンドをオン" aria-pressed="false">♪<span class="mute-line"></span></button>
+        <button id="reset" class="icon-button" title="世界を再生成 R" aria-label="世界を再生成">↻</button>
+        <button id="help" class="icon-button" title="操作ガイド H" aria-label="操作ガイド">?</button>
+        <button id="pause" class="icon-button" title="一時停止 Esc" aria-label="一時停止">Ⅱ</button>
+      </nav>
+    </header>
+    <section id="intro" aria-labelledby="intro-title">
+      <div class="eyebrow"><span></span> DIVINE FLIGHT SANDBOX</div>
+      <h1 id="intro-title">空から、<br>世界に触れる。</h1>
+      <p class="intro-copy">翼をひらき、風を切る。<br>その光が、地上のかたちを変えてゆく。</p>
+      <div class="intro-actions"><button id="start" class="primary">降臨する <span>↗</span></button><button id="demo" class="secondary">自動デモを見る <span>▷</span></button></div>
+      <div class="intro-spec"><span>自由飛行</span><i>·</i><span>ボクセル破壊</span><i>·</i><span>燃焼と反撃</span></div>
+      <p class="loading" id="loading">地上を創造しています…</p>
+    </section>
+    <aside id="region"><div class="eyebrow">THE FIRST REALM</div><h2>翠嶺の王国 <span>エルデ</span></h2><div class="region-line"></div><p>風の向くままに。世界は、壊せる。</p></aside>
+    <section id="hud" hidden>
+      <div class="objective"><div class="eyebrow">FREE FLIGHT <span id="mode-label">SANDBOX</span></div><h2>光で、世界をほどく。</h2><p>街を狙い、長押しで神の光を放つ</p><div class="stat-line"><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
+      <div id="crosshair"><span></span><i></i></div><div id="target-label"></div>
+      <div class="telemetry"><div class="speed"><strong id="speed">0</strong><span>km/h</span><small>VELOCITY</small></div><div class="telemetry-divider"></div><div class="altitude"><small>ALTITUDE</small><strong><span id="altitude">0</span><em>m</em></strong></div><div class="shield"><div><span>神威</span><b id="health-label">100</b></div><div class="meter"><i id="health-bar"></i></div><small id="flight-state">CRUISING</small></div></div>
+      <div class="map-panel"><div class="map-title"><span>ELDE / 地表観測</span><span id="fps">— FPS</span></div><canvas id="minimap" width="180" height="150" aria-label="街と自分の位置のミニマップ"></canvas><div class="map-key"><i></i> あなた <i></i> 反撃拠点</div></div>
+      <div id="toast" role="status"></div>
+      <div id="demo-badge" hidden>自動デモ <span>·</span> <button id="take-control">操作を始める ↗</button></div>
+    </section>
+    <footer><span id="footer-left">AN EXPERIMENT IN FLIGHT & DESTRUCTION</span><div class="control-strip"><span><kbd>W A S D</kbd> 飛行</span><span><kbd>SHIFT</kbd> 加速</span><span><kbd>CLICK</kbd> 神の光</span><span><kbd>H</kbd> ガイド</span></div><span class="version">α 0.1</span></footer>
+    <section id="touch-controls" hidden aria-label="タッチ操作"><div><button data-key="KeyW" aria-label="前進">↑</button><div><button data-key="KeyA" aria-label="左旋回">←</button><button data-key="KeyS" aria-label="減速">↓</button><button data-key="KeyD" aria-label="右旋回">→</button></div></div><div><button data-key="Space" aria-label="上昇">＋</button><button data-key="KeyC" aria-label="下降">−</button><button id="touch-fire" aria-label="光を放つ">✧</button></div></section>
+    <dialog id="guide"><button class="close" id="close-guide" aria-label="閉じる">×</button><div class="eyebrow">FIELD MANUAL / 01</div><h2>翼と光の使い方</h2><p>自由に飛び、地上を変えてみてください。</p><div class="guide-grid"><dl><dt><kbd>W</kbd> / <kbd>S</kbd></dt><dd>前進・後退</dd><dt><kbd>A</kbd> / <kbd>D</kbd></dt><dd>左右に旋回</dd><dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>上向き・下向き</dd><dt><kbd>SPACE</kbd> / <kbd>C</kbd></dt><dd>垂直上昇・下降</dd><dt><kbd>SHIFT</kbd></dt><dd>高速飛行</dd><dt><kbd>左ドラッグ</kbd></dt><dd>神の光を照射・狙いを動かす</dd><dt><kbd>右ドラッグ</kbd></dt><dd>視点を動かす</dd><dt><kbd>R</kbd> / <kbd>ESC</kbd></dt><dd>世界を再生成・一時停止</dd></dl><div class="materials"><h3>地上は、生きている。</h3><p><i class="wood"></i><b>木材</b> 壊れやすく、よく燃える</p><p><i class="roof"></i><b>屋根材</b> 熱が蓄積すると着火</p><p><i class="stone"></i><b>石材</b> 硬く、燃えない</p><hr><p>地面もブロック単位で削れます。<br>支えのなくなった建物は崩落します。</p><p>住民は光から逃げ、投石機と魔導師は<br>反撃します。足場を壊すと停止します。</p><div class="character-switch" role="group" aria-label="操作キャラクター"><button id="god" aria-pressed="true">光の神</button><button id="demon" aria-pressed="false">闇の悪魔</button></div></div></div><button id="guide-play" class="primary">空へ戻る <span>↗</span></button></dialog>
+    <div id="pause-screen" hidden><div class="eyebrow">TAKE A BREATH</div><h2>風は、待っている。</h2><button id="resume" class="primary">飛行を再開 <span>↗</span></button></div>
+    <div id="fatal" hidden role="alert"><h2>3D画面を開始できませんでした</h2><p id="fatal-message"></p><p>WebGL 2対応ブラウザで、ハードウェアアクセラレーションを有効にしてお試しください。</p></div>
+  </main>
+  <script type="module" src="./js/game.js"></script>
+</body>
+</html>
