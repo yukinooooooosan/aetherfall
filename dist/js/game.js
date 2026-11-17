@@ -3,6 +3,10 @@ import { World, MATERIALS, BLOCK, random } from './model.js';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
+// Keep combat implementation for later; this build isolates flight feel.
+const FLIGHT_DEBUG=true;
+const padInput={x:0,y:0,pointerId:null};
+function resetControls(){keys.clear();pointerDown=false;rightDown=false;padInput.x=padInput.y=0;padInput.pointerId=null;$('#pad-knob').style.transform='translate(-50%, -50%)';$('#flight-pad').classList.remove('engaged');for(const b of document.querySelectorAll('[data-key]')){b.classList.remove('pressed');b.setAttribute('aria-pressed','false');}}
 let renderer,scene,camera,world,terrain,blockMesh,forest,treeTrunks,treeLeaves,humans=[],defenderViews=[],treeViews=[],effects=[],projectiles=[];
 let active=false,paused=false,demo=false,demon=false,beamOn=false,pointerDown=false,rightDown=false,audioOn=false;
 let pausedBeforeGuide=false;
@@ -61,8 +65,10 @@ function rebuildWorld(notify=true){
   for(const p of projectiles){scene.remove(p.mesh);p.mesh.geometry.dispose();p.mesh.material.dispose();}
   for(const e of effects){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();}
   effects=[];projectiles=[];particleData.length=0;humans=[];defenderViews=[];treeViews=[];
-  world=new World();buildTerrain();buildBlocks();buildHumans();buildDefenders();buildTrees();
-  health=100;playerPos.set(0,63,142);velocity.set(0,0,0);yaw=0;pitch=-.08;speed=0;fireClock=0;hitClock=0;keys.clear();pointerDown=false;beamOn=false;
+  world=new World();
+  if(FLIGHT_DEBUG){for(const d of world.defenders)for(const id of world.buildings[d.building].blocks)world.blocks[id].alive=false;world.defenders=[];}
+  buildTerrain();buildBlocks();buildHumans();if(!FLIGHT_DEBUG)buildDefenders();buildTrees();
+  health=100;playerPos.set(0,63,142);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
   if(notify)toast('世界を再創造しました');
 }
 
@@ -93,7 +99,7 @@ function buildTerrain(){
 }
 function buildBlocks(){
   blockMesh=new THREE.InstancedMesh(new THREE.BoxGeometry(1.94,1.94,1.94),material(0xffffff),world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
-  const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(1);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
+  const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
   blockMesh.instanceMatrix.needsUpdate=true;blockMesh.instanceColor.needsUpdate=true;scene.add(blockMesh);
 }
 function updateBlocks(){
@@ -189,7 +195,7 @@ function processEvents(){
   for(const e of world.drainEvents()){
     if(e.type==='debris'){if(debrisCount++<95)emit(e.x,e.y,e.z,MATERIALS[e.mat].color,1,e.reason==='collapse'?5:12);}
     if(e.type==='impact'){emit(e.x,e.y,e.z,demon?0xd3a5ed:0xffdea1,9,14,'spark');impactRing(e.x,e.y,e.z,e.r);playImpact();}
-    if(e.type==='shot')shoot(e);
+    if(e.type==='shot'&&!FLIGHT_DEBUG)shoot(e);
   }
 }
 function updateProjectiles(dt){
@@ -208,12 +214,14 @@ function updateProjectiles(dt){
 }
 
 function updateFlight(dt){
-  const turn=(keys.has('KeyA')?1:0)-(keys.has('KeyD')?1:0),tilt=(keys.has('ArrowUp')?1:0)-(keys.has('ArrowDown')?1:0);
-  yaw+=turn*dt*1.35;pitch=clamp(pitch+tilt*dt*.75,-1.18,1.18);
-  const boost=keys.has('ShiftLeft')||keys.has('ShiftRight'),move=(keys.has('KeyW')?1:0)-(keys.has('KeyS')?1:0);
+  const turn=clamp((keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0)-padInput.x,-1,1);
+  const lift=clamp((keys.has('Space')||FLIGHT_DEBUG&&keys.has('ArrowUp')?1:0)-(keys.has('KeyC')||FLIGHT_DEBUG&&keys.has('ArrowDown')?1:0)-padInput.y,-1,1);
+  const tilt=(keys.has('ArrowUp')?1:0)-(keys.has('ArrowDown')?1:0);
+  yaw+=turn*dt*1.35;pitch=FLIGHT_DEBUG?0:clamp(pitch+tilt*dt*.75,-1.18,1.18);
+  const boost=keys.has('ShiftLeft')||keys.has('ShiftRight'),move=(keys.has('KeyW')?1:0)-(!FLIGHT_DEBUG&&keys.has('KeyS')?1:0);
   forward.set(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch));
-  const desired=forward.clone().multiplyScalar(move*(boost?97:32));desired.y+=((keys.has('Space')?1:0)-(keys.has('KeyC')?1:0))*(boost?48:24);
-  velocity.lerp(desired,1-Math.exp(-dt*(move?2.8:2.3)));
+  const desired=forward.clone().multiplyScalar(move*(boost?97:32));desired.y+=lift*(boost?48:24);
+  velocity.lerp(desired,1-Math.exp(-dt*(move||lift?3.2:FLIGHT_DEBUG?6:2.3)));if(velocity.length()<.12&&desired.lengthSq()===0)velocity.set(0,0,0);
   const steps=Math.max(1,Math.ceil(velocity.length()*dt/.8));
   for(let step=0;step<steps;step++){
     playerPos.addScaledVector(velocity,dt/steps);
@@ -222,7 +230,7 @@ function updateFlight(dt){
   playerPos.x=clamp(playerPos.x,-550,550);playerPos.z=clamp(playerPos.z,-550,550);const floor=world.terrainHeight(playerPos.x,playerPos.z);
   playerPos.y=clamp(playerPos.y,Math.max(4,floor+2.4),240);
   speed=velocity.length();document.body.classList.toggle('boosting',boost&&move!==0);
-  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;avatar.rotation.set(pitch*.6,yaw,turn*.22);
+  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;avatar.rotation.set(FLIGHT_DEBUG?-lift*.13:pitch*.6,yaw,turn*.22);
   const flap=Math.sin(elapsed*(boost?11:4))*(boost?.1:.16);leftWing.rotation.z=flap;rightWing.rotation.z=-flap;cape.rotation.x=.35+speed*.008;
   const horizontal=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
   const camPos=playerPos.clone().addScaledVector(horizontal,-14-speed*.035).add(new THREE.Vector3(Math.cos(yaw)*3.8,0,-Math.sin(yaw)*3.8));camPos.y+=5.6;
@@ -245,7 +253,7 @@ function updateDemo(dt){
   if(live){aim.set(live.x,live.y,live.z);aimHit={type:'block',block:live};}else{aim.set(b.x,world.terrainHeight(b.x,b.z),b.z);aimHit={type:'terrain'};}
 }
 function updateBeam(dt){
-  beamOn=active&&!paused&&(demo?Math.sin(elapsed*1.2)>.0:pointerDown||keys.has('KeyF'));
+  beamOn=!FLIGHT_DEBUG&&active&&!paused&&(demo?Math.sin(elapsed*1.2)>.0:pointerDown||keys.has('KeyF'));
   document.body.classList.toggle('firing',beamOn);beam.visible=beamCore.visible=beamOn;impactGlow.visible=beamOn&&!!aimHit;
   if(!beamOn){fireClock=0;if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);return;}
   const from=avatar.position.clone().add(new THREE.Vector3(0,.25,-.3).applyAxisAngle(new THREE.Vector3(0,1,0),yaw));
@@ -289,34 +297,50 @@ function loop(now){
   requestAnimationFrame(loop);const rawDt=lastHudTime?(now-lastHudTime)/1000:.016,dt=Math.min(.08,rawDt);lastHudTime=now;frameCount++;fps=lerp(fps,1/Math.max(rawDt,.001),.08);
   if(!paused){
     elapsed+=dt;hitClock=Math.max(0,hitClock-dt);if(active){if(demo)updateDemo(dt);else updateFlight(dt);}else updateAttract(dt);
-    if(!demo)aimHit=castAim();updateBeam(dt);
-    simClock+=dt;if(simClock>=.05){world.tick(simClock,active?playerPos:null);simClock=0;processEvents();updateBlocks();if(world.terrainDirty)buildTerrain();}
-    if(active){updateProjectiles(dt);health=Math.min(100,health+dt*1.1);}
+    if(!FLIGHT_DEBUG&&!demo)aimHit=castAim();updateBeam(dt);
+    simClock+=dt;if(simClock>=.05){world.tick(simClock,active&&!FLIGHT_DEBUG?playerPos:null);simClock=0;processEvents();updateBlocks();if(world.terrainDirty)buildTerrain();}
+    if(active&&!FLIGHT_DEBUG){updateProjectiles(dt);health=Math.min(100,health+dt*1.1);}
     updateParticles(dt);updateWorldViews(dt);hudClock+=dt;if(hudClock>.15){hudClock=0;updateHud();}
     if(toastClock>0){toastClock-=dt;if(toastClock<=0)$('#toast').classList.remove('visible');}
   }
   renderer.render(scene,camera);
 }
 
-function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO DEMO':'SANDBOX';document.body.classList.add('playing');if(matchMedia('(pointer:coarse)').matches&&!demo)$('#touch-controls').hidden=false;playerPos.set(0,63,142);yaw=0;pitch=-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));if(!demo)toast('Wで前進 / SHIFTで加速 / 左長押しで光を放つ');}
-function setPaused(value){if(!active)return;paused=value;keys.clear();pointerDown=false;beam.visible=beamCore.visible=impactGlow.visible=false;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
-function openGuide(){pausedBeforeGuide=paused;keys.clear();pointerDown=false;paused=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
-function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;}
+function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;resetControls();$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FLIGHT DEBUG';document.body.classList.add('playing');$('#touch-controls').hidden=demo;playerPos.set(0,63,142);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));if(!demo)toast('左パッドで上下・旋回 / 右ボタンを押して前進');}
+function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
+function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
+function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
 function resize(){if(!renderer)return;camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);}
 function initAudio(){
   if(!audioCtx){audioCtx=new (window.AudioContext||window.webkitAudioContext)();const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate);const a=buf.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1);const src=audioCtx.createBufferSource();src.buffer=buf;src.loop=true;windFilter=audioCtx.createBiquadFilter();windFilter.type='lowpass';windFilter.frequency.value=400;windGain=audioCtx.createGain();windGain.gain.value=0;src.connect(windFilter).connect(windGain).connect(audioCtx.destination);src.start();const tone=audioCtx.createOscillator();tone.frequency.value=76;tone.type='sawtooth';const filter=audioCtx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=450;beamGain=audioCtx.createGain();beamGain.gain.value=0;tone.connect(filter).connect(beamGain).connect(audioCtx.destination);tone.start();}audioCtx.resume();
 }
-$('#start').onclick=()=>begin();$('#demo').onclick=()=>begin(true);$('#take-control').onclick=()=>{demo=false;$('#demo-badge').hidden=true;$('#mode-label').textContent='SANDBOX';pitch=-.08;toast('あなたの翼で、自由に飛行できます');};$('#reset').onclick=()=>rebuildWorld();$('#pause').onclick=()=>setPaused(!paused);$('#resume').onclick=()=>setPaused(false);$('#help').onclick=openGuide;$('#close-guide').onclick=closeGuide;$('#guide-play').onclick=closeGuide;$('#guide').addEventListener('cancel',()=>{paused=pausedBeforeGuide;});$('#god').onclick=()=>setCharacter(false);$('#demon').onclick=()=>setCharacter(true);
+$('#start').onclick=()=>begin();$('#demo').onclick=()=>begin(true);$('#take-control').onclick=()=>{demo=false;resetControls();$('#demo-badge').hidden=true;$('#touch-controls').hidden=false;$('#mode-label').textContent='FLIGHT DEBUG';pitch=FLIGHT_DEBUG?0:-.08;toast('左パッドで上下・旋回 / 右ボタンを押して前進');};$('#reset').onclick=()=>rebuildWorld();$('#pause').onclick=()=>setPaused(!paused);$('#resume').onclick=()=>setPaused(false);$('#help').onclick=openGuide;$('#close-guide').onclick=closeGuide;$('#guide-play').onclick=closeGuide;$('#guide').addEventListener('cancel',()=>{paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;});$('#god').onclick=()=>setCharacter(false);$('#demon').onclick=()=>setCharacter(true);
 $('#audio').onclick=()=>{initAudio();audioOn=!audioOn;$('#audio').setAttribute('aria-pressed',audioOn);$('#audio').setAttribute('aria-label',audioOn?'サウンドをオフ':'サウンドをオン');$('.mute-line').hidden=audioOn;if(!audioOn){windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}};
 window.addEventListener('resize',resize);window.addEventListener('keydown',e=>{
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ControlLeft','ControlRight'].includes(e.code))e.preventDefault();
   if(e.repeat)return;if(e.code==='KeyH'){if($('#guide').open)closeGuide();else openGuide();return;}
   if($('#guide').open)return;if(e.code==='Escape'){setPaused(!paused);return;}if(e.code==='KeyR'){rebuildWorld();return;}
   if(!active||paused)return;keys.add(e.code);
-});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();pointerDown=false;rightDown=false;if(active&&!demo)setPaused(true);});
-canvas.addEventListener('contextmenu',e=>e.preventDefault());canvas.addEventListener('pointerdown',e=>{if(!active||paused||demo)return;canvas.setPointerCapture(e.pointerId);if(e.button===0)pointerDown=true;if(e.button===2)rightDown=true;});canvas.addEventListener('pointerup',e=>{if(e.button===0)pointerDown=false;if(e.button===2)rightDown=false;});canvas.addEventListener('pointercancel',()=>{pointerDown=rightDown=false;});canvas.addEventListener('pointermove',e=>{if(!active||paused||demo||!(pointerDown||rightDown))return;yaw-=e.movementX*.003;pitch=clamp(pitch-e.movementY*.0024,-1.18,1.18);});
-for(const b of document.querySelectorAll('[data-key]')){b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);keys.add(b.dataset.key);});for(const event of ['pointerup','pointercancel'])b.addEventListener(event,()=>keys.delete(b.dataset.key));}
-$('#touch-fire').addEventListener('pointerdown',e=>{e.preventDefault();e.target.setPointerCapture(e.pointerId);pointerDown=true;});for(const event of ['pointerup','pointercancel'])$('#touch-fire').addEventListener(event,()=>pointerDown=false);
+});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{resetControls();if(active&&!demo)setPaused(true);});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());canvas.addEventListener('pointerdown',e=>{if(FLIGHT_DEBUG||!active||paused||demo)return;canvas.setPointerCapture(e.pointerId);if(e.button===0)pointerDown=true;if(e.button===2)rightDown=true;});canvas.addEventListener('pointerup',e=>{if(e.button===0)pointerDown=false;if(e.button===2)rightDown=false;});canvas.addEventListener('pointercancel',()=>{pointerDown=rightDown=false;});canvas.addEventListener('pointermove',e=>{if(FLIGHT_DEBUG||!active||paused||demo||!(pointerDown||rightDown))return;yaw-=e.movementX*.003;pitch=clamp(pitch-e.movementY*.0024,-1.18,1.18);});
+for(const b of document.querySelectorAll('[data-key]')){
+  b.addEventListener('contextmenu',e=>e.preventDefault());
+  b.addEventListener('pointerdown',e=>{if(!active||paused||demo)return;e.preventDefault();b.setPointerCapture(e.pointerId);keys.add(b.dataset.key);b.classList.add('pressed');b.setAttribute('aria-pressed','true');});
+  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,()=>{keys.delete(b.dataset.key);b.classList.remove('pressed');b.setAttribute('aria-pressed','false');});
+}
+const pad=$('#flight-pad');
+function movePad(e){
+  if(e.pointerId!==padInput.pointerId)return;
+  const rect=pad.getBoundingClientRect(),radius=rect.width*.35;
+  let x=(e.clientX-rect.left-rect.width/2)/radius,y=(e.clientY-rect.top-rect.height/2)/radius;
+  const length=Math.hypot(x,y),magnitude=clamp((length-.12)/.88,0,1);
+  padInput.x=length?x/length*magnitude:0;padInput.y=length?y/length*magnitude:0;
+  $('#pad-knob').style.transform=`translate(calc(-50% + ${padInput.x*radius}px), calc(-50% + ${padInput.y*radius}px))`;
+}
+pad.addEventListener('contextmenu',e=>e.preventDefault());
+pad.addEventListener('pointerdown',e=>{if(!active||paused||demo||padInput.pointerId!==null)return;e.preventDefault();padInput.pointerId=e.pointerId;pad.setPointerCapture(e.pointerId);pad.classList.add('engaged');movePad(e);});
+pad.addEventListener('pointermove',movePad);
+for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('demo'))begin(true);
-  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,health,speed,position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
+  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,yaw,pitch,pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}
