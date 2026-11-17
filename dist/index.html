@@ -6,7 +6,7 @@
   <meta name="description" content="前進ボタンとバーチャルパッドで、上下移動と旋回を試す飛行デバッグ版。">
   <title>AETHERFALL — 神域の残響</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c5a46b' d='m16 1 5 10 10 5-10 5-5 10-5-10-10-5 10-5z'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css?v=0.3">
+  <link rel="stylesheet" href="./style.css?v=0.3.1">
 </head>
 <body class="flight-debug">
   <main id="game" aria-label="AETHERFALL 3D飛行ゲーム">
@@ -39,7 +39,7 @@
       <div id="toast" role="status"></div>
       <div id="demo-badge" hidden>自動デモ <span>·</span> <button id="take-control">操作を始める ↗</button></div>
     </section>
-    <footer><span id="footer-left">AN EXPERIMENT IN FLIGHT</span><div class="control-strip"><span><kbd>W</kbd> 前進</span><span><kbd>↑ ↓</kbd> 上下</span><span><kbd>← →</kbd> 旋回</span><span><kbd>H</kbd> ガイド</span></div><span class="version">α 0.3</span></footer>
+    <footer><span id="footer-left">AN EXPERIMENT IN FLIGHT</span><div class="control-strip"><span><kbd>W</kbd> 前進</span><span><kbd>↑ ↓</kbd> 上下</span><span><kbd>← →</kbd> 旋回</span><span><kbd>H</kbd> ガイド</span></div><span class="version">α 0.3.1</span></footer>
     <section id="touch-controls" hidden aria-label="飛行操作">
       <div class="pad-group"><div id="flight-pad" role="group" aria-label="バーチャルパッド：上下で昇降、左右で旋回、斜めで同時操作"><span class="pad-up">↑</span><span class="pad-down">↓</span><span class="pad-left">←</span><span class="pad-right">→</span><i id="pad-knob"></i></div><p>上下・旋回 <span>斜めもOK</span></p></div>
       <div class="forward-group"><button id="forward-button" data-key="KeyW" aria-label="押して前進、離して減速" aria-pressed="false"><span>前進</span><small>HOLD</small></button><p>離すと減速・停止</p></div>
@@ -48,6 +48,6 @@
     <div id="pause-screen" hidden><div class="eyebrow">TAKE A BREATH</div><h2>風は、待っている。</h2><button id="resume" class="primary">飛行を再開 <span>↗</span></button></div>
     <div id="fatal" hidden role="alert"><h2>3D画面を開始できませんでした</h2><p id="fatal-message"></p><p>WebGL 2対応ブラウザで、ハードウェアアクセラレーションを有効にしてお試しください。</p></div>
   </main>
-  <script type="module" src="./js/game.js?v=0.3"></script>
+  <script type="module" src="./js/game.js?v=0.3.1"></script>
 </body>
 </html>

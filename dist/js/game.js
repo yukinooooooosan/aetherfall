@@ -225,6 +225,16 @@ function updateProjectiles(dt){
   if(health<=0){health=100;playerPos.set(0,85,135);velocity.set(0,0,0);toast('神威が尽きた — 天空から再降臨');}
 }
 
+function updateChaseCamera(dt,distance,height,response){
+  const heading=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
+  const rear=playerPos.clone().addScaledVector(heading,-distance);rear.y+=height;
+  camera.position.lerp(rear,1-Math.exp(-dt*response));
+  // Aim along the camera-to-player bearing, so follow lag during a turn does
+  // not push the character to either side of the screen.
+  const viewForward=playerPos.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
+  const target=playerPos.clone().addScaledVector(viewForward,29);target.y-=8;
+  camera.lookAt(target);
+}
 function updateFlight(dt){
   const turn=clamp((keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0)-padInput.x,-1,1);
   const lift=clamp((keys.has('Space')||FLIGHT_DEBUG&&keys.has('ArrowUp')?1:0)-(keys.has('KeyC')||FLIGHT_DEBUG&&keys.has('ArrowDown')?1:0)-padInput.y,-1,1);
@@ -245,10 +255,7 @@ function updateFlight(dt){
   avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;
   updateAvatarPose(dt,Math.hypot(velocity.x,velocity.z),velocity.y,turn);
   const flap=Math.sin(elapsed*(boost?11:4))*(boost?.1:.16);leftWing.rotation.z=flap;rightWing.rotation.z=-flap;cape.rotation.x=.35+speed*.008;
-  const horizontal=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
-  const camPos=playerPos.clone().addScaledVector(horizontal,-14-speed*.035).add(new THREE.Vector3(Math.cos(yaw)*3.8,0,-Math.sin(yaw)*3.8));camPos.y+=5.6;
-  const target=playerPos.clone().addScaledVector(forward,29);target.y-=8;
-  camera.position.lerp(camPos,1-Math.exp(-dt*5));camera.lookAt(target);
+  updateChaseCamera(dt,14+speed*.035,5.6,5);
   camera.fov=lerp(camera.fov,boost&&move?73:60,1-Math.exp(-dt*3));camera.updateProjectionMatrix();
   if(windGain){const muted=paused||!audioOn;windGain.gain.setTargetAtTime(muted?0:.012+speed*.00055,audioCtx.currentTime,.15);windFilter.frequency.setTargetAtTime(240+speed*15,audioCtx.currentTime,.1);}
 }
@@ -262,8 +269,7 @@ function updateDemo(dt){
   const vx=Math.cos(a)*10.92,vz=-Math.sin(a)*12,vy=Math.cos(a*.8)*1.152;
   forward.set(vx,0,vz).normalize();yaw=Math.atan2(-vx,-vz);pitch=0;
   avatar.position.copy(playerPos);updateAvatarPose(dt,Math.hypot(vx,vz),vy,.2);leftWing.rotation.z=Math.sin(elapsed*4)*.15;rightWing.rotation.z=-leftWing.rotation.z;
-  const target=playerPos.clone().addScaledVector(forward,29);target.y-=8;
-  const cam=playerPos.clone().addScaledVector(forward,-17);cam.y+=6;camera.position.lerp(cam,1-Math.exp(-dt*3));camera.lookAt(target);speed=Math.hypot(vx,vy,vz);
+  updateChaseCamera(dt,17,6,3);speed=Math.hypot(vx,vy,vz);
   const b=world.buildings[Math.floor(elapsed/3)%14];const live=b.blocks.map(i=>world.blocks[i]).find(v=>v.alive&&v.mat===0);
   if(live){aim.set(live.x,live.y,live.z);aimHit={type:'block',block:live};}else{aim.set(b.x,world.terrainHeight(b.x,b.z),b.z);aimHit={type:'terrain'};}
 }
