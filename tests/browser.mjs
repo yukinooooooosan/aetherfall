@@ -23,21 +23,24 @@ try{
  await touch('touchStart',[{...p,id:1}]);await touch('touchMove',[{x:p.x-38,y:p.y-38,id:1}]);
  await wait(()=>{const s=window.__aether.state;return s.position[1]>66&&s.yaw>.2;});
  let s=await state();assert.ok(Math.abs(s.position[0])<.1&&Math.abs(s.position[2]-142)<.1);assert.equal(s.pitch,0);assert.ok(s.pad.x<-.3&&s.pad.y<-.3);
+ assert.ok(s.attitude.pitch>.15&&s.attitude.bank>.12);assert.ok(Math.abs(s.attitude.heading-s.yaw)<.001);
  console.log('diagonal lift and yaw without forward',s.position,s.yaw);
- await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);assert.deepEqual((await state()).pad,{x:0,y:0});
+ await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);assert.deepEqual((await state()).pad,{x:0,y:0});await wait(()=>{const a=window.__aether.state.attitude;return Math.abs(a.pitch)<.03&&Math.abs(a.bank)<.03;});
  await page.locator('#reset').tap();
  // Two real touch pointers: right thumb throttle plus left thumb diagonal pad.
  p=await center('#flight-pad');f=await center('#forward-button');
  await touch('touchStart',[{...p,id:1},{...f,id:2}]);await touch('touchMove',[{x:p.x-38,y:p.y-38,id:1},{...f,id:2}]);
  await wait(()=>{const s=window.__aether.state;return s.position[1]>66&&s.position[2]<138&&s.yaw>.15;});
  s=await state();assert.equal(await page.locator('#forward-button').getAttribute('aria-pressed'),'true');console.log('multitouch forward + diagonal',s.position,s.yaw);
+ assert.ok(s.attitude.bank>.15);
  await snapshot('flight-debug-diagonal');
  await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);assert.equal(await page.locator('#forward-button').getAttribute('aria-pressed'),'false');
  // Forward movement keeps altitude level; down alone descends in place.
  await page.locator('#reset').tap();f=await center('#forward-button');
  await touch('touchStart',[{...f,id:2}]);await wait(()=>window.__aether.state.position[2]<135);s=await state();assert.ok(Math.abs(s.position[1]-63)<.01);assert.equal(s.pitch,0);
+ assert.ok(s.attitude.pitch<-.2);console.log('forward lean',s.attitude);
  await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);
- const before=(await state()).position;p=await center('#flight-pad');await touch('touchStart',[{x:p.x,y:p.y+48,id:1}]);await wait(()=>window.__aether.state.velocity[1]<-10);
+ const before=(await state()).position;p=await center('#flight-pad');await touch('touchStart',[{x:p.x,y:p.y+48,id:1}]);await wait(()=>window.__aether.state.velocity[1]<-10&&window.__aether.state.attitude.pitch<-.15);
  await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);s=await state();assert.ok(s.position[1]<before[1]-1);assert.ok(Math.hypot(s.position[0]-before[0],s.position[2]-before[2])<.1);
  console.log('level forward and independent descent passed');
  // Cancellation and pause both release controls, even when held.
@@ -49,6 +52,14 @@ try{
  s=await state();assert.equal(s.beamOn,false);assert.equal(s.projectiles,0);assert.equal(s.stats.destroyed,0);assert.equal(s.stats.excavated,0);
  await page.setViewportSize({width:844,height:390});await page.waitForTimeout(300);await snapshot('flight-debug-landscape');
  const padBox=await page.locator('#flight-pad').boundingBox(),forwardBox=await page.locator('#forward-button').boundingBox();assert.ok(padBox.x>=0&&padBox.y>=0&&padBox.y+padBox.height<=390);assert.ok(forwardBox.x+forwardBox.width<=844&&forwardBox.y+forwardBox.height<=390);
+ // Local bank must follow both turn directions while the independent flight
+ // controller continues level. Boost adds forward lean; release eases to hover.
+ await page.locator('#reset').tap();await page.keyboard.down('KeyW');await page.keyboard.down('ArrowLeft');
+ await wait(()=>{const s=window.__aether.state;return s.attitude.bank>.4&&s.yaw>.4;});s=await state();assert.ok(Math.abs(s.position[1]-63)<.01);await snapshot('flight-pose-left-bank');console.log('left bank',s.attitude);
+ await page.keyboard.up('ArrowLeft');await wait(()=>Math.abs(window.__aether.state.attitude.bank)<.04);
+ await page.keyboard.down('ArrowRight');await wait(()=>window.__aether.state.attitude.bank<-.4);await snapshot('flight-pose-right-bank');console.log('right bank',(await state()).attitude);await page.keyboard.up('ArrowRight');
+ await page.keyboard.down('ShiftLeft');await wait(()=>window.__aether.state.attitude.pitch<-.65);console.log('accelerated forward lean',(await state()).attitude);await page.keyboard.up('ShiftLeft');await page.keyboard.up('KeyW');
+ await wait(()=>{const s=window.__aether.state;return s.speed<.2&&Math.abs(s.attitude.pitch)<.03&&Math.abs(s.attitude.bank)<.03;});
  await page.goto('http://127.0.0.1:4173/?test=1&demo=1');await wait(()=>window.__aether?.state.demo);await page.waitForTimeout(400);s=await state();assert.equal(s.beamOn,false);assert.equal(s.stats.destroyed,0);await page.locator('#take-control').tap();assert.equal(await page.locator('#touch-controls').isVisible(),true);assert.equal((await state()).pitch,0);
- assert.deepEqual(errors,[]);console.log('PASS: diagonal pad, real multitouch, independent lift/descent, braking, cancellation, pause, no combat, landscape and demo');
+ assert.deepEqual(errors,[]);console.log('PASS: diagonal multitouch, independent flight, left/right bank, climb/descent pitch, speed lean, neutral recovery, cancellation, pause, no combat, landscape and demo');
 }finally{await browser.close();}

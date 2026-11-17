@@ -13,7 +13,7 @@ let pausedBeforeGuide=false;
 let elapsed=0,fireClock=0,simClock=0,hudClock=0,toastClock=0,hitClock=0,frameCount=0,fps=60,lastHudTime=0;
 let yaw=0,pitch=-.08,health=100,velocity=new THREE.Vector3(),speed=0,aim=new THREE.Vector3(),aimHit=null;
 const playerPos=new THREE.Vector3(0,63,142),forward=new THREE.Vector3(),temp=new THREE.Object3D(),v3=new THREE.Vector3(),ray=new THREE.Raycaster();
-let avatar,leftWing,rightWing,halo,cape,beam,beamCore,impactGlow,windLines,audioCtx,windGain,beamGain,windFilter;
+let avatar,avatarPose,leftWing,rightWing,halo,cape,beam,beamCore,impactGlow,windLines,audioCtx,windGain,beamGain,windFilter;
 const particleCapacity=900,particleData=[],particleGeo=new THREE.BoxGeometry(1,1,1),particleMat=new THREE.MeshLambertMaterial({color:0xffffff});
 let particles;const beamMaterial=new THREE.MeshBasicMaterial({color:0xffd388,transparent:true,opacity:.19,depthWrite:false,blending:THREE.AdditiveBlending});
 const beamCoreMaterial=new THREE.MeshBasicMaterial({color:0xfff5cb,transparent:true,opacity:.95,depthWrite:false});
@@ -69,6 +69,7 @@ function rebuildWorld(notify=true){
   if(FLIGHT_DEBUG){for(const d of world.defenders)for(const id of world.buildings[d.building].blocks)world.blocks[id].alive=false;world.defenders=[];}
   buildTerrain();buildBlocks();buildHumans();if(!FLIGHT_DEBUG)buildDefenders();buildTrees();
   health=100;playerPos.set(0,63,142);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
+  avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);
   if(notify)toast('世界を再創造しました');
 }
 
@@ -148,7 +149,8 @@ function buildTrees(){
 }
 
 function createAvatar(){
-  const a=new THREE.Group();
+  // Heading belongs to the root. Lean is local to that heading, at every yaw.
+  const root=new THREE.Group(),a=new THREE.Group();avatarPose=a;root.add(a);
   const body=box(.52,.8,.3,0xe0d8c1,a);body.position.y=.1;body.rotation.x=-.25;
   const head=mesh(new THREE.IcosahedronGeometry(.22,0),material(0xf4d5ad),a);head.position.set(0,.72,0);
   const hair=mesh(new THREE.IcosahedronGeometry(.235,0),material(0xe0c27b),a);hair.position.set(0,.81,.05);hair.scale.set(1,.8,1);
@@ -158,7 +160,17 @@ function createAvatar(){
   const wing=(side)=>{const root=new THREE.Group();root.position.set(side*.2,.4,.12);for(let i=0;i<6;i++){
     const g=new THREE.BufferGeometry(),x1=side*(.25+i*.26),x2=side*(.75+i*.23),y=.3+i*.07;
     g.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,x1,y,.12,x2,-.5-i*.14,.3,x1*.8,-.2-i*.09,.25],3));g.setIndex([0,1,2,0,2,3]);g.computeVertexNormals();mesh(g,material(i%2?0xf3e4c6:0xe1d3b6,{side:THREE.DoubleSide}),root);
-  }a.add(root);return root;};leftWing=wing(-1);rightWing=wing(1);return a;
+  }a.add(root);return root;};leftWing=wing(-1);rightWing=wing(1);return root;
+}
+function updateAvatarPose(dt,horizontalSpeed,verticalSpeed,turn){
+  const cruise=clamp(horizontalSpeed/32,0,1),fast=clamp((horizontalSpeed-32)/65,0,1);
+  const travelAngle=Math.atan2(verticalSpeed,Math.max(horizontalSpeed,10));
+  const targetPitch=clamp(-cruise*.56-fast*.24+clamp(travelAngle*.7,-.7,.7),-1.26,.7);
+  const targetBank=clamp(turn*.93*(.35+.65*cruise),-1.05,1.05);
+  // Respond quickly to a new lean, then ease back as motion and turn settle.
+  avatarPose.rotation.x=lerp(avatarPose.rotation.x,targetPitch,1-Math.exp(-dt*7));
+  avatarPose.rotation.z=lerp(avatarPose.rotation.z,targetBank,1-Math.exp(-dt*(Math.abs(targetBank)>.02?9:4.8)));
+  avatar.rotation.set(0,yaw,0);
 }
 function setCharacter(dark){demon=dark;cape.material.color.setHex(dark?0x622d52:0x456c69);halo.material.color.setHex(dark?0xe9a0dc:0xf5d491);beamMaterial.color.setHex(dark?0xa56de0:0xffd388);beamCoreMaterial.color.setHex(dark?0xf0c7ff:0xfff5cb);for(const wing of [leftWing,rightWing])wing.children.forEach((m,i)=>m.material.color.setHex(dark?i%2?0x453550:0x302c44:i%2?0xf3e4c6:0xe1d3b6));$('#god').setAttribute('aria-pressed',!dark);$('#demon').setAttribute('aria-pressed',dark);toast(dark?'闇の悪魔に姿を変えました':'光の神に姿を変えました');}
 function createWind(){const arr=new Float32Array(42*2*3);windLines=new THREE.LineSegments(new THREE.BufferGeometry(),new THREE.LineBasicMaterial({color:0xf7edce,transparent:true,opacity:0}));windLines.geometry.setAttribute('position',new THREE.BufferAttribute(arr,3));scene.add(windLines);}
@@ -230,7 +242,8 @@ function updateFlight(dt){
   playerPos.x=clamp(playerPos.x,-550,550);playerPos.z=clamp(playerPos.z,-550,550);const floor=world.terrainHeight(playerPos.x,playerPos.z);
   playerPos.y=clamp(playerPos.y,Math.max(4,floor+2.4),240);
   speed=velocity.length();document.body.classList.toggle('boosting',boost&&move!==0);
-  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;avatar.rotation.set(FLIGHT_DEBUG?-lift*.13:pitch*.6,yaw,turn*.22);
+  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;
+  updateAvatarPose(dt,Math.hypot(velocity.x,velocity.z),velocity.y,turn);
   const flap=Math.sin(elapsed*(boost?11:4))*(boost?.1:.16);leftWing.rotation.z=flap;rightWing.rotation.z=-flap;cape.rotation.x=.35+speed*.008;
   const horizontal=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
   const camPos=playerPos.clone().addScaledVector(horizontal,-14-speed*.035).add(new THREE.Vector3(Math.cos(yaw)*3.8,0,-Math.sin(yaw)*3.8));camPos.y+=5.6;
@@ -240,15 +253,17 @@ function updateFlight(dt){
   if(windGain){const muted=paused||!audioOn;windGain.gain.setTargetAtTime(muted?0:.012+speed*.00055,audioCtx.currentTime,.15);windFilter.frequency.setTargetAtTime(240+speed*15,audioCtx.currentTime,.1);}
 }
 function updateAttract(dt){
-  const a=elapsed*.025;playerPos.set(Math.sin(a)*85,69+Math.sin(a*.7)*9,145*Math.cos(a));yaw=a;pitch=-.12;
-  avatar.position.copy(playerPos);avatar.rotation.set(-.1,yaw,-.12);leftWing.rotation.z=Math.sin(elapsed*3)*.15;rightWing.rotation.z=-leftWing.rotation.z;
+  const a=elapsed*.025,vx=Math.cos(a)*2.125,vz=-Math.sin(a)*3.625;playerPos.set(Math.sin(a)*85,69+Math.sin(a*.7)*9,145*Math.cos(a));yaw=Math.atan2(-vx,-vz);pitch=-.12;
+  avatar.position.copy(playerPos);updateAvatarPose(dt,Math.hypot(vx,vz),Math.cos(a*.7)*.1575,.12);leftWing.rotation.z=Math.sin(elapsed*3)*.15;rightWing.rotation.z=-leftWing.rotation.z;
   const cam=playerPos.clone().add(new THREE.Vector3(16,9,29));camera.position.lerp(cam,1-Math.exp(-dt*1.4));camera.lookAt(-7,22,-19);
 }
 function updateDemo(dt){
   const a=elapsed*.12;playerPos.set(Math.sin(a)*91,53+Math.sin(a*.8)*12,24+Math.cos(a)*100);
-  const target=new THREE.Vector3(Math.sin(a*.4)*25,20,23);forward.copy(target).sub(playerPos).normalize();yaw=Math.atan2(-forward.x,-forward.z);pitch=Math.asin(forward.y);
-  avatar.position.copy(playerPos);avatar.rotation.set(pitch*.6,yaw,Math.sin(a)*.2);leftWing.rotation.z=Math.sin(elapsed*4)*.15;rightWing.rotation.z=-leftWing.rotation.z;
-  const cam=playerPos.clone().addScaledVector(forward,-17);cam.y+=6;camera.position.lerp(cam,1-Math.exp(-dt*3));camera.lookAt(target);speed=35;
+  const vx=Math.cos(a)*10.92,vz=-Math.sin(a)*12,vy=Math.cos(a*.8)*1.152;
+  forward.set(vx,0,vz).normalize();yaw=Math.atan2(-vx,-vz);pitch=0;
+  avatar.position.copy(playerPos);updateAvatarPose(dt,Math.hypot(vx,vz),vy,.2);leftWing.rotation.z=Math.sin(elapsed*4)*.15;rightWing.rotation.z=-leftWing.rotation.z;
+  const target=playerPos.clone().addScaledVector(forward,29);target.y-=8;
+  const cam=playerPos.clone().addScaledVector(forward,-17);cam.y+=6;camera.position.lerp(cam,1-Math.exp(-dt*3));camera.lookAt(target);speed=Math.hypot(vx,vy,vz);
   const b=world.buildings[Math.floor(elapsed/3)%14];const live=b.blocks.map(i=>world.blocks[i]).find(v=>v.alive&&v.mat===0);
   if(live){aim.set(live.x,live.y,live.z);aimHit={type:'block',block:live};}else{aim.set(b.x,world.terrainHeight(b.x,b.z),b.z);aimHit={type:'terrain'};}
 }
@@ -306,7 +321,7 @@ function loop(now){
   renderer.render(scene,camera);
 }
 
-function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;resetControls();$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FLIGHT DEBUG';document.body.classList.add('playing');$('#touch-controls').hidden=demo;playerPos.set(0,63,142);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));if(!demo)toast('左パッドで上下・旋回 / 右ボタンを押して前進');}
+function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FLIGHT DEBUG';document.body.classList.add('playing');$('#touch-controls').hidden=demo;playerPos.set(0,63,142);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));if(!demo)toast('左パッドで上下・旋回 / 右ボタンを押して前進');}
 function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
@@ -342,5 +357,5 @@ pad.addEventListener('pointerdown',e=>{if(!active||paused||demo||padInput.pointe
 pad.addEventListener('pointermove',movePad);
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('demo'))begin(true);
-  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,yaw,pitch,pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
+  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,yaw,pitch,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}
