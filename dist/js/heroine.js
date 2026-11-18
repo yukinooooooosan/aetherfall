@@ -34,7 +34,7 @@ class LightWing extends THREE.Mesh{
     geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
     geometry.setIndex(indices);
     geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),2.5);
-    this.position.set(side*4*pixel,0,-.065);
+    this.position.set(side*4*pixel,0,.035);
   }
   animate(phase,strength,sweep){
     const positions=this.geometry.attributes.position;
@@ -65,14 +65,22 @@ export class Heroine extends THREE.Group{
     texture.repeat.set(1/8,1/rows.length);
     this.texture=texture;
     this.body=new THREE.Mesh(new THREE.PlaneGeometry(size,size),new THREE.MeshBasicMaterial({
-      map:texture,alphaTest:.5,transparent:true,depthWrite:true,toneMapped:false
+      map:texture,alphaTest:.5,transparent:true,depthWrite:false,toneMapped:false
     }));
-    this.body.renderOrder=-1; // Composite the cutout after the dash wings, before other translucent effects.
+    // Draw the character color, then both kinds of wing; seal the sprite depth
+    // afterwards so terrain and unrelated world effects still occlude normally.
+    this.body.renderOrder=-4;
+    const silhouette=new THREE.Mesh(this.body.geometry,new THREE.MeshBasicMaterial({
+      map:texture,alphaTest:.5,transparent:true,colorWrite:false,depthWrite:true
+    }));
+    silhouette.renderOrder=-1;
+    this.body.add(silhouette);
     this.add(this.body);
     this.wingMaterial=new THREE.MeshBasicMaterial({color:0xffdf9a,side:THREE.DoubleSide,
       vertexColors:true,transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
     this.wings=new THREE.Group();
     this.left=new LightWing(-1,this.wingMaterial);this.right=new LightWing(1,this.wingMaterial);
+    this.left.renderOrder=this.right.renderOrder=-2;
     this.wings.add(this.left,this.right);this.body.add(this.wings);
     this.socket=new THREE.Vector3();
     this.reset();

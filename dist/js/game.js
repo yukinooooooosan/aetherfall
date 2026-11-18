@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { Heroine } from './heroine.js?v=0.7.2';
+import { Heroine } from './heroine.js?v=0.7.3';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
