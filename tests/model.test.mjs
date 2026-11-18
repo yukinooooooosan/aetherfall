@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {World} from '../dist/js/model.js';
+import {DoubleTap,FlightManeuver} from '../dist/js/maneuvers.js';
+import {Vector3} from '../dist/vendor/three.core.js';
 
 function fixture(){const w=new World(1);w.blocks=[];w.grid.clear();w.spatial.clear();w.buildings=[];w.humans=[];w.defenders=[];w.burning.clear();w.changed.clear();w.dirtyBuildings.clear();w.destroyed=0;w.events=[];return w;}
 test('a seeded island has reproducible terrain, buildings, citizens and six defenders',()=>{
@@ -108,4 +110,31 @@ test('a blast strikes within its 3D radius and leaves bystanders alive',()=>{
   w.impact(0,16,70,6,90);
   assert.equal(hit.struckAt,0);assert.equal(near.struckAt,null);
   assert.equal(w.getStats().panicking,1);
+});
+
+test('double taps require distinct fast strokes and tolerate stick jitter',()=>{
+  const taps=new DoubleTap();
+  assert.deepEqual([[.7,0],[.4,50],[.8,100],[0,160],[.7,250]].map(([axis,t])=>taps.sample(axis,t)),[0,0,0,0,1]);
+  taps.reset();
+  assert.deepEqual([[-.8,0],[0,100],[-.8,400],[0,470],[-.65,580]].map(([axis,t])=>taps.sample(axis,t)),[0,0,0,0,-1]);
+});
+
+test('a vertical loop gains two radii and exits on the original heading',()=>{
+  const origin=new Vector3(12,65,-31),out=new Vector3();
+  const loop=new FlightManeuver('loop',origin,.8,62,1);
+  assert.ok(Math.abs(loop.point(.5,out).y-origin.y-2*loop.radius)<1e-6);
+  assert.ok(loop.point(1,out).distanceTo(origin)<1e-6);
+  assert.equal(loop.cameraHeading(.5),.8);
+  const high=new FlightManeuver('loop',new Vector3(0,235,0),0,95,1);
+  assert.equal(high.point(.5,out).y,240);
+});
+
+test('turns reverse in either direction and the chase camera finishes its orbit later',()=>{
+  for(const side of [-1,1]){
+    const flip=new FlightManeuver('flip',new Vector3(0,40,0),0,18,side);
+    assert.equal(flip.heading(.55),side*Math.PI);
+    assert.ok(Math.abs(flip.cameraHeading(.55))<Math.PI/2);
+    assert.equal(flip.cameraHeading(1),flip.heading(1));
+    assert.ok(flip.point(.5,new Vector3()).z<0);
+  }
 });
