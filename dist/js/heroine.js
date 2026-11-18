@@ -20,15 +20,15 @@ class LightWing extends THREE.Mesh{
     const geometry=new THREE.BufferGeometry();
     super(geometry,material);
     this.side=side;
-    const positions=new THREE.Float32BufferAttribute(new Float32Array(feathers*(sections+1)*6),3);
+    const positions=new THREE.Float32BufferAttribute(new Float32Array(feathers*(sections+1)*9),3);
     geometry.setAttribute('position',positions.setUsage(THREE.DynamicDrawUsage));
     const colors=[],indices=[];
     for(let feather=0;feather<feathers;feather++){
       for(let i=0;i<=sections;i++){
         const t=i/sections;
-        colors.push(1,.92+.08*t,.8+.2*t, .65,.50+.20*t,.34+.26*t);
-        const n=(feather*(sections+1)+i)*2;
-        if(i<sections)indices.push(n,n+1,n+2,n+2,n+1,n+3);
+        colors.push(.98,.92,.77, 1,1,.96, .62,.44+.19*t,.27+.23*t);
+        const n=(feather*(sections+1)+i)*3;
+        if(i<sections)indices.push(n,n+1,n+3,n+3,n+1,n+4,n+1,n+2,n+4,n+4,n+2,n+5);
       }
     }
     geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
@@ -40,10 +40,10 @@ class LightWing extends THREE.Mesh{
     // Swing the casting-side wing down and across into a shorter, lower fan.
     const castingSide=this.side===1;
     const arc=castingSide?Math.PI*laserFold:0;
-    const reach=this.side*Math.cos(arc)*(1+(castingSide?-.18:.13)*laserFold);
-    const lift=(castingSide?-1.02:.66)*laserFold-.46*Math.sin(arc);
+    const reach=this.side*Math.cos(arc)*(1+(castingSide?-.25:.09)*laserFold);
+    const lift=(castingSide?-.66:.23)*laserFold-.40*Math.sin(arc);
     this.position.x=(this.side*4-(castingSide?6:0)*laserFold)*pixel;
-    this.position.y=(castingSide?-.12:.10)*laserFold;
+    this.position.y=(castingSide?-.20:-.12)*laserFold;
     const positions=this.geometry.attributes.position;
     let index=0;
     for(let feather=0;feather<feathers;feather++){
@@ -52,11 +52,17 @@ class LightWing extends THREE.Mesh{
         // The shoulder leads each stroke. The separate plumes follow with increasing lag.
         const wave=Math.sin(phase-t*1.45-feather*.31);
         const span=(1.48-feather*.21)*(1-.20*sweep);
-        const x=reach*t*span*(1-.055*wave*strength);
+        // Inner plumes grow from staggered points on the leading plume.
+        const branch=laserFold*feather*.11*(1-t);
+        const x=reach*(t*span+branch)*(1-.055*wave*strength);
         const fan=.68-feather*.37*(1-.32*laserFold);
-        const y=t*(fan-.54*sweep+lift)+.15*Math.sin(2*Math.PI*t)+strength*t*(.17+.25*t)*wave;
-        const width=.11*Math.sin(Math.PI*t)*(1+.09*wave);
+        // Both wings bend with the wind. The short far wing trails below
+        // the near one while their roots stay attached to the shoulder blades.
+        const curve=.15*Math.sin(2*Math.PI*t)*(1-laserFold)-.28*Math.sin(Math.PI*t)*laserFold;
+        const y=t*(fan-.54*sweep+lift)+curve+strength*t*(.17+.25*t)*wave;
+        const width=.11*Math.sin(Math.PI*t)*(1+.09*wave)*(1-.24*laserFold);
         positions.setXYZ(index++,x,y+width,0);
+        positions.setXYZ(index++,x,y+width*.32,0);
         positions.setXYZ(index++,x,y-width,0);
       }
     }
@@ -148,10 +154,10 @@ export class Heroine extends THREE.Group{
       this.wings.rotation.z=roll;
       const tuck=motion==='recoil'?1-.56*Math.sin(Math.PI*actionTime/returnDuration):1;
       this.wings.scale.set(tuck,tuck,1);
-      const strength=attack==='charge'?.65+.45*actionTime/chargeDuration:motion==='laser'?1.06:.95-.35*this.sweep;
+      const strength=attack==='charge'?.65+.45*actionTime/chargeDuration:motion==='laser'?.65:.95-.35*this.sweep;
       const bias=turning?bank*.24:0;
       this.left.animate(this.phase,strength-bias,this.sweep,fold);
-      this.right.animate(this.phase-1.05*fold,(strength+bias)*(1-.18*fold),this.sweep,fold);
+      this.right.animate(this.phase-.82*fold,(strength+bias)*(1-.18*fold),this.sweep,fold);
       this.wingMaterial.opacity=.86+.055*Math.sin(this.phase-.6);
       this.farMaterial.color.copy(this.wingMaterial.color).lerp(this.farTint,fold);
       this.farMaterial.opacity=this.wingMaterial.opacity-.07*fold;
