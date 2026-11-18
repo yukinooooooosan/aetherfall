@@ -169,6 +169,12 @@ export class World {
       for(const id of this.spatial.get(key(a,b,c))||[]){const v=this.blocks[id];if(v.alive)fn(v);}
     }
   }
+  damage(v,amount){
+    if(!v.alive)return;
+    v.hp-=amount;
+    if(v.hp<=0)this.remove(v);
+    else if(v.mat===1)this.changed.add(v.id);
+  }
   remove(v,reason='impact'){
     if(!v.alive)return;v.alive=false;this.collapse.damaged(v);this.unindexBlock(v);
     if(v.loose){this.looseCount--;v.body=null;}else this.grid.delete(key(v.gx,v.gy,v.gz));
@@ -189,7 +195,7 @@ export class World {
   }
   impact(x,y,z,r=5,power=42){
     this.shots++;
-    this.nearby(x,y,z,r+2,v=>{const d=Math.hypot(v.x-x,v.y-y,v.z-z);if(d>r+1)return;const strength=power*Math.max(.15,1-d/(r+2));v.hp-=strength;v.heat+=strength*.9;if(v.hp<=0)this.remove(v);else if(v.heat>MATERIALS[v.mat].ignition)this.ignite(v);});
+    this.nearby(x,y,z,r+2,v=>{const d=Math.hypot(v.x-x,v.y-y,v.z-z);if(d>r+1)return;const strength=power*Math.max(.15,1-d/(r+2));this.damage(v,strength);v.heat+=strength*.9;if(v.alive&&v.heat>MATERIALS[v.mat].ignition)this.ignite(v);});
     this.carve(x,y,z,r*.9);
     for(const h of this.humans){if(Math.hypot(h.x-x,h.z-z)<65){h.panic=9;const d=Math.hypot(h.x-x,h.z-z)||1;h.dx=(h.x-x)/d;h.dz=(h.z-z)/d;}}
     this.events.push({type:'impact',x,y,z,r});

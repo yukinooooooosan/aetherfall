@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { World, MATERIALS, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.5.0';
+import { World, MATERIALS, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.3';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -148,13 +148,63 @@ function buildTerrain(){
   if(terrain){terrain.geometry.dispose();terrain.geometry=g;}else terrain=mesh(g,material(0xffffff,{vertexColors:true}));
   world.terrainDirty=false;
 }
+// Columns extend the same fracture. Rows vary its path between adjacent stones.
+function createCrackAtlas(){
+  const tile=128,canvas=document.createElement('canvas');
+  canvas.width=canvas.height=4*tile;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(let row=0;row<4;row++){
+    const jitter=random(321+row);
+    const point=(x,y)=>[x+(jitter()-.5)*13,y+(jitter()-.5)*13];
+    const main=[point(30,-5),point(39,24),point(53,37),point(47,52),point(66,65),point(61,86),point(79,103),point(75,134)];
+    const fork=[main[3],point(69,46),point(85,50),point(100,31),point(131,24)];
+    const lower=[main[5],point(39,88),point(29,104),point(-4,109)];
+    const twig=[fork[2],point(92,64),point(109,71)];
+    for(let stage=1;stage<=3;stage++){
+      ctx.save();ctx.translate(stage*tile,row*tile);
+      ctx.beginPath();ctx.rect(0,0,tile,tile);ctx.clip();
+      ctx.translate(tile/2,tile/2);ctx.rotate(row*Math.PI/2);ctx.translate(-tile/2,-tile/2);
+      function fissure(points,width){
+        for(const [weight,color] of [[width+2.5,'#a39989'],[width,'#322e2c']]){
+          ctx.beginPath();ctx.moveTo(...points[0]);
+          for(const p of points.slice(1))ctx.lineTo(...p);
+          ctx.lineWidth=weight;ctx.strokeStyle=color;ctx.lineJoin='bevel';ctx.stroke();
+        }
+      }
+      fissure(main.slice(0,[0,4,6,8][stage]),stage*1.8+.8);
+      if(stage>=2)fissure(fork.slice(0,stage===2?3:5),stage+1);
+      if(stage===3){fissure(lower,3.5);fissure(twig,2);}
+      ctx.restore();
+    }
+  }
+  const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
+}
+const crackAtlas=createCrackAtlas();
+function stoneTile(block){
+  if(block.mat!==1||block.hp>=MATERIALS[1].hp||!block.alive)return 0;
+  const remaining=block.hp/MATERIALS[1].hp;
+  const stage=remaining>.65?1:remaining>.30?2:3;
+  return (block.id%4)*4+stage;
+}
 function buildBlocks(){
-  blockMesh=new THREE.InstancedMesh(new THREE.BoxGeometry(1.94,1.94,1.94),material(0xffffff),world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
+  const geometry=new THREE.BoxGeometry(1.94,1.94,1.94);
+  const tiles=new THREE.InstancedBufferAttribute(Float32Array.from(world.blocks,stoneTile),1);
+  geometry.setAttribute('crackTile',tiles.setUsage(THREE.DynamicDrawUsage));
+  const surface=material(0xffffff,{map:crackAtlas});
+  surface.onBeforeCompile=shader=>{
+    shader.vertexShader='attribute float crackTile;\n'+shader.vertexShader.replace('#include <uv_vertex>',`#include <uv_vertex>
+      vMapUv=(vec2(mod(crackTile,4.0),floor(crackTile/4.0))+mix(vec2(.02),vec2(.98),vMapUv))*.25;`);
+  };
+  blockMesh=new THREE.InstancedMesh(geometry,surface,world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
   const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(b.color??MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
   blockMesh.instanceMatrix.needsUpdate=true;blockMesh.instanceColor.needsUpdate=true;scene.add(blockMesh);
 }
 function updateBlocks(){
-  for(const id of world.changed){const b=world.blocks[id];if(!b.alive){temp.position.set(b.x,-1000,b.z);temp.scale.setScalar(0);temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);}else{
+  const tiles=blockMesh.geometry.attributes.crackTile;
+  for(const id of world.changed){const b=world.blocks[id],tile=stoneTile(b);
+    if(tiles.getX(id)!==tile){tiles.setX(id,tile);tiles.needsUpdate=true;}
+    if(!b.alive){temp.position.set(b.x,-1000,b.z);temp.scale.setScalar(0);temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);}else{
     temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(1);temp.rotation.set(0,0,0);
     if(b.angle)temp.quaternion.setFromAxisAngle(v3.set(b.axisX,0,b.axisZ),b.angle);
     temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);
@@ -356,9 +406,8 @@ function spreadDashWings(){
 }
 function dashDamage(block){
   if(dashHits.has(block.id))return;
-  dashHits.add(block.id);block.hp-=80;
-  if(block.hp<=0)world.remove(block);
-  else emit(block.x,block.y,block.z,wingColor.getHex(),2,5,'spark');
+  dashHits.add(block.id);world.damage(block,80);
+  if(block.alive)emit(block.x,block.y,block.z,wingColor.getHex(),2,5,'spark');
 }
 function sweepDashWings(){
   const t=Math.min(1,dashDistance/8);
