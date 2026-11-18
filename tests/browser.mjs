@@ -44,6 +44,17 @@ try{
  await page.evaluate(()=>window.__aether.teleport(12,22,18));await page.keyboard.press('Digit2');
  await wait(()=>window.__aether.state.attack==='return');assert.ok(await page.evaluate(()=>window.__aether.world.blocks.some(b=>b.mat===1&&b.hp===20)));await wait(()=>window.__aether.state.attack==='flight');
  assert.deepEqual((await state()).position,[12,22,18]);
+ // The second hit breaks the front stone and rebounds from the next layer.
+ await page.keyboard.press('Digit2');await wait(()=>window.__aether.state.attack==='return');
+ assert.ok(await page.evaluate(()=>{const w=window.__aether.world;return !w.solidAt(12,22,10)&&w.solidAt(12,22,8)?.hp===20;}));
+ await wait(()=>window.__aether.state.attack==='flight');assert.deepEqual((await state()).position,[12,22,18]);
+ // A single-layer wall lets the second dash finish on the far side.
+ await page.evaluate(()=>window.__aether.teleport(32,22,18));
+ await page.keyboard.press('Digit2');await wait(()=>window.__aether.state.attack==='return');
+ await wait(()=>window.__aether.state.attack==='flight');
+ await page.locator('#dash-button').tap();await wait(()=>window.__aether.state.attack==='flight');
+ assert.ok(Math.abs((await state()).position[2]+26)<.01);
+ assert.ok(await page.evaluate(()=>!window.__aether.world.solidAt(32,22,8)));
  await page.evaluate(()=>window.__aether.teleport(22,25,90));await page.locator('#dash-button').tap();
  await wait(()=>window.__aether.state.attack==='flight');assert.ok((await state()).position[2]<48);assert.ok((await state()).stats.destroyed>0);
  const counts=[];

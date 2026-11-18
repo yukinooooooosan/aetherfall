@@ -1,6 +1,6 @@
 {
   "name": "aetherfall-prototype",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "scripts": {"start": "python3 -m http.server 4173 --directory dist", "test": "node --test tests/model.test.mjs"}

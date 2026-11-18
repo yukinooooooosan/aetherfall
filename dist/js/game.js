@@ -382,12 +382,15 @@ function updateDash(dt){
     for(let i=0;i<steps;i++){
       const next=v3.copy(playerPos).addScaledVector(dashDir,travel/steps);
       const block=world.solidAt(next.x,next.y,next.z);
-      if(block?.mat===1||next.y<world.terrainHeight(next.x,next.z)+1||Math.abs(next.x)>550||Math.abs(next.z)>550||next.y>240||next.y<2){
-        if(block?.mat===1){block.hp-=80;if(block.hp<=0)world.remove(block);}
+      if(block?.mat===1){
+        block.hp-=80;
+        if(block.hp<=0)world.remove(block);
+      }
+      if((block?.mat===1&&block.alive)||next.y<world.terrainHeight(next.x,next.z)+1||Math.abs(next.x)>550||Math.abs(next.z)>550||next.y>240||next.y<2){
         dashEnd.copy(playerPos);emit(next.x,next.y,next.z,0xffdd99,12,8,'spark');playImpact();setAttack('return');break;
       }
       playerPos.copy(next);dashDistance+=travel/steps;
-      if(block){
+      if(block?.alive){
         world.nearby(next.x,next.y,next.z,2.6,v=>{
           if(v.mat!==1&&Math.hypot(v.x-next.x,v.y-next.y,v.z-next.z)<2.6)world.remove(v);
         });
