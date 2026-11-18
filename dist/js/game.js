@@ -9,7 +9,7 @@ const canvas=$('#world'),keys=new Set(),rng=random(829);
 const FLIGHT_DEBUG=true;
 const padInput={x:0,y:0,pointerId:null};
 const verticalTaps=new DoubleTap();
-let maneuver=null,touchForward=false,loopExitRotation=null;
+let maneuver=null,touchForward=false,loopRecovery=null;
 function resetControls(){verticalTaps.reset();touchForward=false;keys.clear();pointerDown=false;rightDown=false;padInput.x=padInput.y=0;padInput.pointerId=null;$('#pad-knob').style.transform='translate(-50%, -50%)';$('#flight-pad').classList.remove('engaged');for(const b of document.querySelectorAll('[data-key]')){b.classList.remove('pressed');b.setAttribute('aria-pressed','false');}}
 let renderer,scene,camera,world,terrain,blockMesh,forest,treeTrunks,treeLeaves,humans=[],defenderViews=[],treeViews=[],effects=[],projectiles=[];
 let active=false,paused=false,demo=false,demon=false,beamOn=false,pointerDown=false,rightDown=false,audioOn=false;
@@ -375,38 +375,38 @@ function updateProjectiles(dt){
   if(health<=0){health=100;playerPos.set(0,85,135);velocity.set(0,0,0);toast('神威が尽きた — 天空から再降臨');}
 }
 
-// Compose once in world space. A slight rear three-quarter angle separates the
-// rising and falling legs while keeping the heroine's back visible.
-function frameLoop(move){
-  const center=move.origin.clone();center.y+=move.radius;
-  const arc=Array.from({length:32},(_,i)=>move.point(i/32,new THREE.Vector3()));
-  const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
-  let best=null;
-  for(const [side,lift] of [[.32,.24],[-.32,.24],[.32,.78],[-.32,.78],[0,1.8]]){
-    const boom=move.forward.clone().negate().addScaledVector(move.right,side);
-    boom.y=lift;boom.normalize();
-    const rotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(boom,new THREE.Vector3(),camera.up));
-    const inverse=rotation.clone().invert();
-    let distance=14;
-    for(const point of arc){
-      const p=point.clone().sub(center).applyQuaternion(inverse);
-      distance=Math.max(distance,p.z+Math.max((Math.abs(p.x)+1.8)/camera.aspect,Math.abs(p.y)+1.6)/(.76*tangent));
+function clipCameraBoom(){
+  // Pull the camera inside the arch when masonry would hide the avatar.
+  const boom=camera.position.clone().sub(playerPos),length=boom.length();
+  boom.normalize();
+  for(let d=1;d<length+.75;d+=.75){
+    const sample=v3.copy(playerPos).addScaledVector(boom,Math.min(d,length));
+    if(world.solidAt(sample.x,sample.y,sample.z)||sample.y<world.terrainHeight(sample.x,sample.z)+.45){
+      camera.position.copy(playerPos).addScaledVector(boom,Math.max(.65,d-1.25));break;
     }
-    const position=center.clone().addScaledVector(boom,distance);
-    let visible=0;
-    for(let i=0;i<arc.length;i+=4){
-      const ray=arc[i].clone().sub(position),length=ray.length();ray.normalize();
-      let clear=true;
-      for(let d=0;d<length;d+=1){
-        v3.copy(position).addScaledVector(ray,d);
-        if(world.solidAt(v3.x,v3.y,v3.z)||v3.y<world.terrainHeight(v3.x,v3.z)+.45){clear=false;break;}
-      }
-      if(clear)visible++;
-    }
-    if(!best||visible>best.visible)best={position,rotation,visible};
-    if(visible===8)break;
   }
-  return best;
+}
+
+const chaseVelocity=new THREE.Vector3(),previousCameraPosition=new THREE.Vector3();
+function updateLoopCamera(move,dt){
+  // Carry the incoming camera velocity briefly, then let the heroine travel
+  // inside a dead zone. Predict its boundary crossing to avoid a late snap.
+  const drift=(Math.exp(-Math.max(0,move.time-dt)/.14)-Math.exp(-move.time/.14))*.14;
+  camera.position.addScaledVector(move.entryCameraVelocity,drift);
+  const lookAhead=Math.min(.19,move.time);
+  const future=move.point(Math.min(1,(move.time+lookAhead)/move.duration),move.cameraSpace);
+  future.sub(camera.position).applyQuaternion(move.inverseView);
+  const tangent=Math.tan(THREE.MathUtils.degToRad(camera.fov*.5));
+  const depth=Math.max(10,-future.z);
+  const halfHeight=depth*tangent*.49;
+  const halfWidth=halfHeight*camera.aspect;
+  future.set(future.x-clamp(future.x,-halfWidth,halfWidth),future.y-clamp(future.y,-halfHeight,halfHeight),Math.max(0,future.z+11));
+  // A modest pullback at the edge reduces how far the landscape must rise
+  // and fall on the larger boost loop.
+  future.z+=Math.min(7,Math.abs(future.y)*.28);
+  future.applyQuaternion(camera.quaternion);
+  camera.position.addScaledVector(future,1-Math.exp(-dt*5.2));
+  clipCameraBoom();
 }
 
 function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
@@ -422,16 +422,15 @@ function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
     blendLaserCamera(THREE.MathUtils.smoothstep(progress,0,1));
   }else if(maneuver?.kind==='flip'){
     maneuver.orbitOffset(maneuver.progress,distance,camera.position).add(playerPos);
-  }else camera.position.lerp(rear,1-Math.exp(-dt*response));
-  // Pull the camera inside the arch when masonry would hide the avatar.
-  const boom=camera.position.clone().sub(playerPos),length=boom.length();
-  boom.normalize();
-  for(let d=1;d<length+.75;d+=.75){
-    const sample=v3.copy(playerPos).addScaledVector(boom,Math.min(d,length));
-    if(world.solidAt(sample.x,sample.y,sample.z)||sample.y<world.terrainHeight(sample.x,sample.z)+.45){
-      camera.position.copy(playerPos).addScaledVector(boom,Math.max(.65,d-1.25));break;
+  }else{
+    if(loopRecovery){
+      const t=loopRecovery.time;
+      camera.position.addScaledVector(loopRecovery.velocity,.16*(Math.exp(-t/.16)-Math.exp(-(t+dt)/.16)));
+      response*=.10+.90*THREE.MathUtils.smoothstep(t,0,.80);
     }
+    camera.position.lerp(rear,1-Math.exp(-dt*response));
   }
+  clipCameraBoom();
   // Aim along the camera-to-player bearing, so follow lag during a turn does
   // not push the character to either side of the screen.
   if(releasing)return;
@@ -442,10 +441,10 @@ function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
     target.lerp(playerPos,maneuver.orbitWeight(maneuver.progress));
   }
   camera.lookAt(target);
-  if(loopExitRotation){
-    loopExitRotation.time+=dt;
-    camera.quaternion.slerp(loopExitRotation.start,1-THREE.MathUtils.smoothstep(loopExitRotation.time,0,.38));
-    if(loopExitRotation.time>=.38)loopExitRotation=null;
+  if(loopRecovery){
+    loopRecovery.time+=dt;
+    camera.quaternion.slerp(loopRecovery.start,1-THREE.MathUtils.smoothstep(loopRecovery.time,0,.80));
+    if(loopRecovery.time>=.80)loopRecovery=null;
   }
 }
 const chargeDuration=.7,returnDuration=.72,fullReleaseDuration=.54;
@@ -537,7 +536,7 @@ function sweepDashWings(){
 }
 
 function setAttack(mode){
-  loopExitRotation=null;
+  loopRecovery=null;
   verticalTaps.reset();
   releaseRemaining=0;
   attack=mode;attackTime=0;dashWings.visible=mode==='dash';
@@ -548,6 +547,7 @@ function setAttack(mode){
   if(!aiming){beamOn=false;beam.visible=beamCore.visible=impactGlow.visible=false;}
 }
 function resetAttacks(){
+  chaseVelocity.set(0,0,0);
   maneuver=null;
   setAttack('flight');rain=false;dropProgress=0;$('#rain-button').setAttribute('aria-pressed','false');
   $('#rain-button').textContent='光粒 OFF';
@@ -672,22 +672,16 @@ function sampleFlightTap(time){
   if(!direction)return;
   const next=new FlightManeuver(direction>0?'loop':'flip',playerPos,yaw,Math.hypot(velocity.x,velocity.z),turnInput()>.15?1:-1);
   if(next.kind==='loop'&&next.radius<.75){toast('宙返りする高さが足りません');return;}
-  loopExitRotation=null;
+  loopRecovery=null;
   if(next.kind==='loop'){
-    next.shot=frameLoop(next);next.setupTime=0;
-    next.startPosition=camera.position.clone();next.startRotation=camera.quaternion.clone();
+    next.entryCameraVelocity=chaseVelocity.clone();
+    next.inverseView=camera.quaternion.clone().invert();
+    next.cameraSpace=new THREE.Vector3();
   }else next.cameraOffset=camera.position.clone().sub(playerPos);
   maneuver=next;releaseRemaining=0;avatarPose.rotation.set(0,0,0);
 }
 function updateManeuver(dt){
   const move=maneuver;
-  if(move.kind==='loop'&&move.setupTime<.22){
-    move.setupTime=Math.min(.22,move.setupTime+dt);
-    const blend=THREE.MathUtils.smoothstep(move.setupTime,0,.22);
-    camera.position.lerpVectors(move.startPosition,move.shot.position,blend);
-    camera.quaternion.slerpQuaternions(move.startRotation,move.shot.rotation,blend);
-    return;
-  }
   const end=Math.min(move.duration,move.time+dt);
   const from=playerPos.clone(),next=new THREE.Vector3();
   // Sample the arc itself so low frame rates cannot skip terrain or a thin wall.
@@ -705,9 +699,10 @@ function updateManeuver(dt){
   yaw=move.heading(move.progress);pitch=0;
   avatar.position.copy(playerPos);avatar.rotation.set(0,yaw,0);
   velocity.subVectors(playerPos,from).divideScalar(dt);speed=velocity.length();
-  if(move.kind==='flip')updateChaseCamera(dt,14+move.entrySpeed*.035,5.6,5);
+  if(move.kind==='loop')updateLoopCamera(move,dt);
+  else updateChaseCamera(dt,14+move.entrySpeed*.035,5.6,5);
   if(blocked||end===move.duration){
-    if(move.kind==='loop')loopExitRotation={start:camera.quaternion.clone(),time:0};
+    if(move.kind==='loop')loopRecovery={start:camera.quaternion.clone(),velocity:camera.position.clone().sub(previousCameraPosition).divideScalar(dt).clampLength(0,100),time:0};
     const exitSpeed=blocked?0:move.entrySpeed;
     velocity.set(-Math.sin(yaw)*exitSpeed,0,-Math.cos(yaw)*exitSpeed);speed=exitSpeed;
     maneuver=null;verticalTaps.reset();
@@ -828,7 +823,8 @@ function loop(now){
   requestAnimationFrame(loop);const rawDt=lastHudTime?(now-lastHudTime)/1000:.016,dt=Math.min(.08,rawDt);lastHudTime=now;frameCount++;fps=lerp(fps,1/Math.max(rawDt,.001),.08);
   if(!paused){
     elapsed+=dt;hitClock=Math.max(0,hitClock-dt);if(active){lastPosition.copy(playerPos);if(demo)updateDemo(dt);else{
-      const returning=attack==='return';updateFlight(dt);
+      const returning=attack==='return';previousCameraPosition.copy(camera.position);updateFlight(dt);
+      chaseVelocity.subVectors(camera.position,previousCameraPosition).divideScalar(dt).clampLength(0,100);
       updateDrops(dt,returning?0:Math.hypot(playerPos.x-lastPosition.x,playerPos.z-lastPosition.z));
     }if(FLIGHT_DEBUG)updateCourse(lastPosition,playerPos);}else if(!lab)updateAttract(dt);
     if(!lab){
@@ -855,7 +851,7 @@ function loop(now){
   renderer.render(scene,camera);
 }
 
-function begin(asDemo=false){loopExitRotation=null;maneuver=null;releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
+function begin(asDemo=false){chaseVelocity.set(0,0,0);loopRecovery=null;maneuver=null;releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
 function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
