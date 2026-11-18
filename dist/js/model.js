@@ -100,7 +100,7 @@ export class World {
     for(let i=0;i<56;i++){
       const x=i<10?(i%2?1:-1)*(2+this.rng()*3):(this.rng()-.5)*110;
       const z=i<10?19+i*7+this.rng()*3:10+this.rng()*82;
-      this.humans.push({x,z,y:this.terrainHeight(x,z),homeX:x,homeZ:z,dx:0,dz:0,panic:0,phase:this.rng()*6.28,speed:2.8+this.rng()*1.8});
+      this.humans.push({x,z,y:this.terrainHeight(x,z),struckAt:null,homeX:x,homeZ:z,dx:0,dz:0,panic:0,phase:this.rng()*6.28,speed:2.8+this.rng()*1.8});
     }
     if(!defenses)return;
     for(const [type,x,z] of [['catapult',-54,15],['catapult',54,15],['catapult',-14,90],['mage',-12,-12],['mage',12,-12],['mage',0,42]]){
@@ -199,11 +199,40 @@ export class World {
     if(n){this.collapse.recheck=true;this.excavated+=n;this.terrainDirty=true;for(const b of this.buildings)if(Math.hypot(b.x-x,b.z-z)<r+36)this.dirtyBuildings.add(this.buildings.indexOf(b));}
     return n;
   }
+  strikeHuman(h){
+    if(h.struckAt!==null)return;
+    h.struckAt=this.tickTime;
+    h.panic=0;
+    for(const other of this.humans){
+      if(other.struckAt===null&&Math.abs(other.y-h.y)<5)this.fleeFrom(other,h.x,h.z,12);
+    }
+  }
+  fleeFrom(h,x,z,radius){
+    const dx=h.x-x,dz=h.z-z,distance=Math.hypot(dx,dz);
+    if(distance>=radius)return;
+    h.panic=9;h.dx=distance?dx/distance:1;h.dz=distance?dz/distance:0;
+  }
+  strikeAlongBeam(from,to){
+    const dx=to.x-from.x,dy=to.y-from.y,dz=to.z-from.z,lengthSq=dx*dx+dy*dy+dz*dz;
+    if(!lengthSq)return;
+    for(const h of this.humans){
+      if(h.struckAt!==null)continue;
+      const x=h.x-from.x,y=h.y+.9-from.y,z=h.z-from.z;
+      const t=(x*dx+y*dy+z*dz)/lengthSq;
+      if(t<0||t>1)continue;
+      const radius=.85+1.25*t; // Beam widens towards its visible impact point.
+      if((x-dx*t)**2+(y-dy*t)**2+(z-dz*t)**2<=radius*radius)this.strikeHuman(h);
+    }
+  }
   impact(x,y,z,r=5,power=42){
     this.shots++;
     this.nearby(x,y,z,r+2,v=>{const d=Math.hypot(v.x-x,v.y-y,v.z-z);if(d>r+1)return;const strength=power*Math.max(.15,1-d/(r+2));this.damage(v,strength);v.heat+=strength*.9;if(v.alive&&v.heat>MATERIALS[v.mat].ignition)this.ignite(v);});
     this.carve(x,y,z,r*.9);
-    for(const h of this.humans){if(Math.hypot(h.x-x,h.z-z)<65){h.panic=9;const d=Math.hypot(h.x-x,h.z-z)||1;h.dx=(h.x-x)/d;h.dz=(h.z-z)/d;}}
+    for(const h of this.humans){
+      if(h.struckAt!==null)continue;
+      if(Math.hypot(h.x-x,h.y+.9-y,h.z-z)<=r)this.strikeHuman(h);
+      else this.fleeFrom(h,x,z,65);
+    }
     this.events.push({type:'impact',x,y,z,r});
   }
   checkSupport(){
@@ -224,6 +253,7 @@ export class World {
     const flightSpeed=flybyVelocity?Math.hypot(flybyVelocity.x,flybyVelocity.z):0;
     const headingX=flightSpeed?flybyVelocity.x/flightSpeed:0,headingZ=flightSpeed?flybyVelocity.z/flightSpeed:0;
     for(const h of this.humans){
+      if(h.struckAt!==null)continue;
       h.phase+=dt*9;
       if(player&&flybyVelocity&&flightSpeed>8&&Math.abs(player.y-h.y)<18){
         const rx=h.x-player.x,rz=h.z-player.z;

@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.4';
+import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -339,6 +339,10 @@ function beamBetween(m,from,to){const d=v3.copy(to).sub(from),length=d.length();
 function emit(x,y,z,color,amount=1,force=7,kind='debris'){
   for(let i=0;i<amount;i++){
     if(particleData.length>=particleCapacity)particleData.shift();
+    if(kind==='ash'){
+      particleData.push({x:x+(rng()-.5)*.7,y:y+rng()*1.6,z:z+(rng()-.5)*.4,vx:(rng()-.5)*2,vy:1+rng()*2,vz:(rng()-.5)*2,life:.35+rng()*.36,size:.1+rng()*.14,color,kind,rotation:rng()*6});
+      continue;
+    }
     const f=force*(.3+rng());particleData.push({x,y,z,vx:(rng()-.5)*f,vy:kind==='fire'?4+rng()*5:rng()*f,vz:(rng()-.5)*f,life:kind==='fire'?.6+rng()*.6:1.2+rng()*1.2,max:2,size:kind==='fire'?.35+rng()*.65:.2+rng()*.6,color,kind,rotation:rng()*6});
   }
 }
@@ -455,15 +459,24 @@ function sweepDashWings(){
   const t=Math.min(1,dashDistance/8);
   const scale=.18+.82*t*(2-t),reach=wingReach*scale;
   dashWings.position.copy(playerPos);dashWings.scale.setScalar(scale);
-  world.nearby(playerPos.x,playerPos.y,playerPos.z,reach+2,block=>{
-    if(dashHits.has(block.id))return;
-    wingDelta.set(block.x-playerPos.x,block.y-playerPos.y,block.z-playerPos.z);
+  function touchesWing(x,y,z,padding,verticalPadding){
+    wingDelta.set(x-playerPos.x,y-playerPos.y,z-playerPos.z);
     const lateral=Math.abs(wingDelta.dot(wingSide));
-    if(lateral>reach+1)return;
+    if(lateral>reach+padding)return false;
     const u=Math.min(1,lateral/reach),height=wingDelta.dot(wingUp),depth=wingDelta.dot(wingBack);
     const front=wingTrail(u)*scale,chord=wingChord(u)*scale,top=wingHeight(u)*scale;
-    if(depth>=front-1&&depth<=front+chord+1&&height>=top-.19*chord-1&&height<=top+1)dashDamage(block);
+    return depth>=front-padding&&depth<=front+chord+padding&&height>=top-.19*chord-verticalPadding&&height<=top+verticalPadding;
+  }
+  world.nearby(playerPos.x,playerPos.y,playerPos.z,reach+2,block=>{
+    if(!dashHits.has(block.id)&&touchesWing(block.x,block.y,block.z,1,1))dashDamage(block);
   });
+  for(const h of world.humans){
+    if(h.struckAt!==null)continue;
+    const y=h.y+1.2;
+    // Allow a low pass at the normal flight floor to clip a standing sprite.
+    const bodyHit=Math.abs(y-playerPos.y)<=1.6&&Math.hypot(h.x-playerPos.x,h.z-playerPos.z)<=1;
+    if(bodyHit||touchesWing(h.x,y,h.z,.6,2.6))world.strikeHuman(h);
+  }
 }
 
 function setAttack(mode){
@@ -624,12 +637,13 @@ function updateBeam(dt){
   document.body.classList.toggle('firing',beamOn);beam.visible=beamCore.visible=beamOn;impactGlow.visible=beamOn&&!!aimHit;
   if(!beamOn){fireClock=0;if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);return;}
   const from=avatar.position.clone().add(new THREE.Vector3(0,.25,-.3).applyAxisAngle(new THREE.Vector3(0,1,0),yaw));
+  world.strikeAlongBeam(from,aim);
   beamBetween(beam,from,aim);beamBetween(beamCore,from,aim);impactGlow.position.copy(aim);impactGlow.scale.setScalar(2+Math.sin(elapsed*45)*.4);
   if(beamGain)beamGain.gain.setTargetAtTime(audioOn?.025:0,audioCtx.currentTime,.1);
   fireClock-=dt;if(fireClock<=0&&aimHit&&aimHit.type!=='sea'){fireClock=.12;world.impact(aim.x,aim.y,aim.z,5.8,53);}
 }
 function updateParticles(dt){
-  for(let i=particleData.length-1;i>=0;i--){const p=particleData[i];p.life-=dt;if(p.life<=0){particleData.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;if(p.kind==='dust'){p.vy*=Math.exp(-dt*3);p.vx*=Math.exp(-dt*2);p.vz*=Math.exp(-dt*2);}else if(p.kind!=='fire')p.vy-=dt*15;
+  for(let i=particleData.length-1;i>=0;i--){const p=particleData[i];p.life-=dt;if(p.life<=0){particleData.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;if(p.kind==='dust'){p.vy*=Math.exp(-dt*3);p.vx*=Math.exp(-dt*2);p.vz*=Math.exp(-dt*2);}else if(p.kind!=='fire'&&p.kind!=='ash')p.vy-=dt*15;
     const ground=world.terrainHeight(p.x,p.z);if(p.y<ground+.12){p.y=ground+.12;p.vy=Math.abs(p.vy)*.18;p.vx*=.8;p.vz*=.8;}
     temp.position.set(p.x,p.y,p.z);temp.rotation.set(p.rotation+elapsed,p.rotation,elapsed*.5);const size=p.size*Math.min(1,p.life*2);
     if(p.kind==='tile')temp.scale.set(size,.22*size,.8*size);
@@ -641,7 +655,25 @@ function updateParticles(dt){
   for(let i=effects.length-1;i>=0;i--){const e=effects[i];e.life-=dt;const s=(1-e.life/e.max)*e.r*2;e.mesh.scale.setScalar(s);e.mesh.material.opacity=e.life/e.max*.6;if(e.life<=0){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();effects.splice(i,1);}}
 }
 function updateWorldViews(dt){
-  for(const h of humans){h.sprite.position.set(h.data.x,h.data.y+.9+(h.data.panic?Math.abs(Math.sin(h.data.phase))*.17:0),h.data.z);h.sprite.material.map=spriteTextures[Math.floor(h.data.phase/Math.PI)%2];h.sprite.material.rotation=h.data.panic?Math.sin(h.data.phase)*.06:0;}
+  for(const view of humans){
+    const {sprite,data:h}=view;
+    if(!sprite.visible)continue;
+    sprite.position.set(h.x,h.y+.9+(h.panic?Math.abs(Math.sin(h.phase))*.17:0),h.z);
+    if(h.struckAt!==null){
+      const age=world.tickTime-h.struckAt;
+      sprite.material.color.setHex(0x16121d);
+      sprite.material.rotation=0;
+      if(age>=.18&&!view.burst){
+        view.burst=true;
+        emit(h.x,h.y,h.z,0x312a38,10,0,'ash');
+      }
+      sprite.material.opacity=clamp(1-(age-.18)/.30,0,1);
+      sprite.visible=age<.48;
+    }else{
+      sprite.material.map=spriteTextures[Math.floor(h.phase/Math.PI)%2];
+      sprite.material.rotation=h.panic?Math.sin(h.phase)*.06:0;
+    }
+  }
   for(const v of defenderViews){v.group.visible=v.data.alive;if(v.data.ring)v.data.ring.rotation.z+=dt*.7;if(v.data.arm)v.data.arm.rotation.x=lerp(v.data.arm.rotation.x,v.data.cooldown>5.5?.5:-.55,dt*3);}
   for(const t of treeViews){if(t.alive&&world.terrainHeight(t.x,t.z)<t.y){t.alive=false;temp.scale.setScalar(0);temp.updateMatrix();treeTrunks.setMatrixAt(t.id,temp.matrix);treeLeaves.setMatrixAt(t.id*2,temp.matrix);treeLeaves.setMatrixAt(t.id*2+1,temp.matrix);treeTrunks.instanceMatrix.needsUpdate=true;treeLeaves.instanceMatrix.needsUpdate=true;emit(t.x,t.y+4,t.z,0x526947,6,8);}}
   if(world.burning.size){let n=0;for(const id of world.burning){if(n++>110)break;const b=world.blocks[id];if(rng()<dt*4)emit(b.x+(rng()-.5)*2,b.y+1,b.z+(rng()-.5)*2,rng()>.4?0xf0a34f:0xe7c775,1,1,'fire');if(rng()<dt*.6)emit(b.x,b.y+3,b.z,0x6d6b60,1,1,'fire');}}

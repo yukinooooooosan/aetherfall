@@ -84,3 +84,28 @@ test('wide and narrow render intervals produce the same square impact',()=>{
   }
   assert.deepEqual(result([.08,.073,.056]),result([1/60]));
 });
+
+test('a direct beam strikes once along its visible segment and a nearby resident flees',()=>{
+  const w=new World();
+  const [hit,near,behind]=w.humans=w.humans.slice(0,3);
+  for(const [h,x,z] of [[hit,0,70],[near,4,70],[behind,0,57]])Object.assign(h,{x,y:16,z});
+  const from={x:0,y:17,z:80},to={x:0,y:17,z:60};
+  w.strikeAlongBeam(from,to);
+  assert.equal(hit.struckAt,0);assert.equal(hit.panic,0);
+  assert.equal(near.struckAt,null);assert.ok(near.panic>0);
+  assert.equal(behind.struckAt,null);
+  w.tick(.3,null);
+  w.strikeAlongBeam(from,to);
+  assert.deepEqual([hit.x,hit.y,hit.z,hit.struckAt],[0,16,70,0]);
+});
+
+test('a blast strikes within its 3D radius and leaves bystanders alive',()=>{
+  const w=new World();
+  const [hit,near]=w.humans=w.humans.slice(0,2);
+  Object.assign(hit,{x:0,y:16,z:70});Object.assign(near,{x:8,y:16,z:70});
+  w.impact(0,26,70,6,90);
+  assert.equal(hit.struckAt,null);
+  w.impact(0,16,70,6,90);
+  assert.equal(hit.struckAt,0);assert.equal(near.struckAt,null);
+  assert.equal(w.getStats().panicking,1);
+});
