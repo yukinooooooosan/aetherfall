@@ -36,7 +36,13 @@ class LightWing extends THREE.Mesh{
     geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),2.5);
     this.position.set(side*4*pixel,0,.035);
   }
-  animate(phase,strength,sweep){
+  animate(phase,strength,sweep,laserFold){
+    // Swing the casting-side wing down and across into a shorter, lower fan.
+    const castingSide=this.side===1;
+    const arc=castingSide?Math.PI*laserFold:0;
+    const reach=this.side*Math.cos(arc)*(1+(castingSide?-.18:.13)*laserFold);
+    const lift=(castingSide?-.65:.22)*laserFold-.46*Math.sin(arc);
+    this.position.x=(this.side*4-(castingSide?6:0)*laserFold)*pixel;
     const positions=this.geometry.attributes.position;
     let index=0;
     for(let feather=0;feather<feathers;feather++){
@@ -45,8 +51,8 @@ class LightWing extends THREE.Mesh{
         // The shoulder leads each stroke. The separate plumes follow with increasing lag.
         const wave=Math.sin(phase-t*1.45-feather*.31);
         const span=(1.48-feather*.21)*(1-.20*sweep);
-        const x=this.side*t*span*(1-.055*wave*strength);
-        const y=t*(.68-feather*.37-.54*sweep)+.15*Math.sin(2*Math.PI*t)+strength*t*(.17+.25*t)*wave;
+        const x=reach*t*span*(1-.055*wave*strength);
+        const y=t*(.68-feather*.37-.54*sweep+lift)+.15*Math.sin(2*Math.PI*t)+strength*t*(.17+.25*t)*wave;
         const width=.11*Math.sin(Math.PI*t)*(1+.09*wave);
         positions.setXYZ(index++,x,y+width,0);
         positions.setXYZ(index++,x,y-width,0);
@@ -86,7 +92,7 @@ export class Heroine extends THREE.Group{
     this.reset();
   }
   reset(){
-    this.motion='hover';this.frame=0;this.time=0;this.phase=0;this.sweep=0;this.body.position.y=0;this.selectFrame('hover',0);
+    this.motion='hover';this.frame=0;this.time=0;this.phase=0;this.sweep=0;this.laserFold=0;this.body.position.y=0;this.selectFrame('hover',0);
   }
   setDark(dark){
     this.body.material.color.setHex(dark?0xc4a0db:0xffffff);
@@ -126,6 +132,9 @@ export class Heroine extends THREE.Group{
     const speedFraction=Math.min(1,horizontalSpeed/32);
     const targetSweep=motion==='recoil'?.95:motion==='laser'?.1:speedFraction;
     this.sweep+=(targetSweep-this.sweep)*(1-Math.exp(-dt*8));
+    const foldTarget=motion==='laser'?1:0;
+    this.laserFold+=THREE.MathUtils.clamp(foldTarget-this.laserFold,-dt/.27,dt/.40);
+    const fold=THREE.MathUtils.smoothstep(this.laserFold,0,1);
     this.phase+=dt*(3.9+1.6*this.sweep+(attack==='charge'?1.8:0));
     const hoverLift=motion==='hover'?.045*Math.sin(this.phase):0;
     this.body.position.y+=(hoverLift-this.body.position.y)*(1-Math.exp(-dt*8));
@@ -136,8 +145,8 @@ export class Heroine extends THREE.Group{
       this.wings.scale.set(tuck,tuck,1);
       const strength=attack==='charge'?.65+.45*actionTime/chargeDuration:motion==='laser'?.44:.95-.35*this.sweep;
       const bias=turning?bank*.24:0;
-      this.left.animate(this.phase,strength-bias,this.sweep);
-      this.right.animate(this.phase,strength+bias,this.sweep);
+      this.left.animate(this.phase,strength-bias,this.sweep,fold);
+      this.right.animate(this.phase-.48*fold,strength+bias,this.sweep,fold);
       this.wingMaterial.opacity=.86+.055*Math.sin(this.phase-.6);
     }
   }

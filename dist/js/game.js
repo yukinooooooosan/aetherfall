@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { Heroine } from './heroine.js?v=0.7.3';
+import { Heroine } from './heroine.js?v=0.7.4';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
@@ -48,7 +48,7 @@ function init(){
   scene.add(new THREE.HemisphereLight(0xf5e9cb,0x415653,1.8));
   const sun=new THREE.DirectionalLight(0xffdfad,2.1);sun.position.set(-100,180,70);scene.add(sun);
   const sky=mesh(new THREE.SphereGeometry(1500,24,12),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:{top:{value:new THREE.Color(0x88aeb6)},bottom:{value:new THREE.Color(0xf1d6b6)}},vertexShader:'varying vec3 vPos;void main(){vPos=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',fragmentShader:'uniform vec3 top;uniform vec3 bottom;varying vec3 vPos;void main(){float h=normalize(vPos).y;gl_FragColor=vec4(mix(bottom,top,smoothstep(-.08,.65,h)),1.);\n#include <colorspace_fragment>\n}'}));sky.renderOrder=-10;
-  const sea=mesh(new THREE.PlaneGeometry(12000,12000),material(0x87a6a4,{transparent:true,opacity:.97}));sea.rotation.x=-Math.PI/2;sea.position.y=-.6;
+  const sea=mesh(new THREE.PlaneGeometry(12000,12000),material(0x87a6a4,{transparent:true,opacity:.97}));sea.renderOrder=-8;sea.rotation.x=-Math.PI/2;sea.position.y=-.6;
   // Distant land masses are scenery, outside the playable destructible island.
   for(let i=0;i<24;i++){
     const a=i/24*Math.PI*2,r=430+rng()*300,h=40+rng()*125;
