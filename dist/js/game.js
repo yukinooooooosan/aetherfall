@@ -64,6 +64,7 @@ function init(){
   const glowGeo=new THREE.SphereGeometry(1,12,8);impactGlow=mesh(glowGeo,new THREE.MeshBasicMaterial({color:0xffdc91,transparent:true,opacity:.55,depthWrite:false,blending:THREE.AdditiveBlending}));
   beam.visible=beamCore.visible=impactGlow.visible=false;
   avatar=createAvatar();scene.add(avatar);
+  createDashWings();
   createWind();rebuildWorld(false);resize();
   camera.position.copy(playerPos).add(new THREE.Vector3(17,15,29));camera.lookAt(0,24,-20);
   $('#loading').textContent='WORLD READY  /  '+world.initialBlocks.toLocaleString()+' BLOCKS';
@@ -313,8 +314,69 @@ let rain=false,dropProgress=0;
 const drops=[],dropGeometry=new THREE.IcosahedronGeometry(.48,0);
 const dropMaterial=new THREE.MeshBasicMaterial({color:0xffe9a3});
 
+const wingReach=12;
+const dashWings=new THREE.Group(),dashHits=new Set();
+const wingSide=new THREE.Vector3(),wingUp=new THREE.Vector3(),wingBack=new THREE.Vector3();
+const wingColor=new THREE.Color(),wingDelta=new THREE.Vector3();
+const wingHeight=u=>.3+1.35*Math.sin(Math.PI*u)-.35*u;
+const wingTrail=u=>.2+2.6*u*u;
+const wingChord=u=>2.5*(1-u);
+
+function createDashWings(){
+  const positions=[],colors=[];
+  function vertex(side,u,trailing,glow){
+    positions.push(side*u*wingReach,wingHeight(u)-trailing*.19,wingTrail(u)+trailing);
+    colors.push(glow,glow,glow);
+  }
+  for(const side of [-1,1])for(let i=0;i<10;i++){
+    const a=i/10,b=(i+1)/10;
+    // A bright leading edge with ten tapered, overlapping flight feathers.
+    const tip=Math.min(1,b+.07);
+    vertex(side,a,0,1);vertex(side,b,0,1);vertex(side,tip,wingChord(b),.52);
+    vertex(side,a,0,1);vertex(side,tip,wingChord(b),.52);vertex(side,a,wingChord(a)*.55,.74);
+  }
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+  geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+  const light=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
+  mesh(geometry,light,dashWings);
+  const aura=mesh(geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:.24,depthWrite:false,blending:THREE.AdditiveBlending}),dashWings);
+  aura.scale.set(1.045,1.12,1.16);
+  dashWings.visible=false;scene.add(dashWings);
+}
+function spreadDashWings(){
+  dashHits.clear();dashWings.position.copy(playerPos);
+  wingSide.set(-dashDir.z,0,dashDir.x);
+  if(wingSide.lengthSq()<.0001)wingSide.set(Math.cos(yaw),0,-Math.sin(yaw));
+  wingSide.normalize();wingBack.copy(dashDir).negate();wingUp.crossVectors(wingBack,wingSide).normalize();
+  dashWings.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(wingSide,wingUp,wingBack));
+  wingColor.setHex(demon?0xefb2ff:0xffe7a3);
+  for(const layer of dashWings.children)layer.material.color.copy(wingColor);
+  dashWings.scale.setScalar(.18);
+}
+function dashDamage(block){
+  if(dashHits.has(block.id))return;
+  dashHits.add(block.id);block.hp-=80;
+  if(block.hp<=0)world.remove(block);
+  else emit(block.x,block.y,block.z,wingColor.getHex(),2,5,'spark');
+}
+function sweepDashWings(){
+  const t=Math.min(1,dashDistance/8);
+  const scale=.18+.82*t*(2-t),reach=wingReach*scale;
+  dashWings.position.copy(playerPos);dashWings.scale.setScalar(scale);
+  world.nearby(playerPos.x,playerPos.y,playerPos.z,reach+2,block=>{
+    if(dashHits.has(block.id))return;
+    wingDelta.set(block.x-playerPos.x,block.y-playerPos.y,block.z-playerPos.z);
+    const lateral=Math.abs(wingDelta.dot(wingSide));
+    if(lateral>reach+1)return;
+    const u=Math.min(1,lateral/reach),height=wingDelta.dot(wingUp),depth=wingDelta.dot(wingBack);
+    const front=wingTrail(u)*scale,chord=wingChord(u)*scale,top=wingHeight(u)*scale;
+    if(depth>=front-1&&depth<=front+chord+1&&height>=top-.19*chord-1&&height<=top+1)dashDamage(block);
+  });
+}
+
 function setAttack(mode){
-  attack=mode;attackTime=0;
+  attack=mode;attackTime=0;dashWings.visible=mode==='dash';
   const aiming=mode==='charge'||mode==='laser';
   $('#laser-button').setAttribute('aria-pressed',aiming);
   $('#laser-button').textContent=mode==='charge'?'溜め中':mode==='laser'?'照射中':'光線';
@@ -346,7 +408,7 @@ function useAttack(action){
     dashStart.copy(playerPos);dashDistance=0;
     dashDir.set(-Math.sin(yaw),0,-Math.cos(yaw));
     if(velocity.length()>3)dashDir.copy(velocity).normalize();
-    velocity.set(0,0,0);setAttack('dash');
+    spreadDashWings();velocity.set(0,0,0);setAttack('dash');
   }
 }
 function steerLaser(dt,turn,lift){
@@ -382,19 +444,12 @@ function updateDash(dt){
     for(let i=0;i<steps;i++){
       const next=v3.copy(playerPos).addScaledVector(dashDir,travel/steps);
       const block=world.solidAt(next.x,next.y,next.z);
-      if(block?.mat===1){
-        block.hp-=80;
-        if(block.hp<=0)world.remove(block);
-      }
+      if(block)dashDamage(block);
       if((block?.mat===1&&block.alive)||next.y<world.terrainHeight(next.x,next.z)+1||Math.abs(next.x)>550||Math.abs(next.z)>550||next.y>240||next.y<2){
         dashEnd.copy(playerPos);emit(next.x,next.y,next.z,0xffdd99,12,8,'spark');playImpact();setAttack('return');break;
       }
       playerPos.copy(next);dashDistance+=travel/steps;
-      if(block?.alive){
-        world.nearby(next.x,next.y,next.z,2.6,v=>{
-          if(v.mat!==1&&Math.hypot(v.x-next.x,v.y-next.y,v.z-next.z)<2.6)world.remove(v);
-        });
-      }
+      sweepDashWings();
     }
     if(attack==='dash'&&dashDistance>=43.999)setAttack('flight');
   }

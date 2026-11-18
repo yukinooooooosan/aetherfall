@@ -40,6 +40,16 @@ try{
  await page.locator('#laser-button').tap();assert.equal((await state()).attack,'flight');
  await page.locator('#laser-button').tap();await page.locator('#forward-button').tap();assert.equal((await state()).attack,'flight');
  await page.locator('#reset').tap();
+ // Both wing tips graze the gateposts. Only the body can interrupt the dash.
+ for(const hp of [20,0]){
+   await page.evaluate(()=>window.__aether.teleport(0,23,31));
+   await page.locator('#dash-button').tap();await wait(()=>window.__aether.state.attack==='flight');
+   assert.ok(Math.abs((await state()).position[2]+13)<.01);
+   const posts=await page.evaluate(()=>[-12,12].map(x=>window.__aether.world.solidAt(x,23,8)?.hp??0));
+   assert.deepEqual(posts,[hp,hp]);
+   assert.equal(await page.evaluate(()=>window.__aether.world.solidAt(16,23,8)?.hp),100);
+ }
+ await page.locator('#reset').tap();
  // Head north at the stone gatepost, then through the roof of a wooden house.
  await page.evaluate(()=>window.__aether.teleport(12,22,18));await page.keyboard.press('Digit2');
  await wait(()=>window.__aether.state.attack==='return');assert.ok(await page.evaluate(()=>window.__aether.world.blocks.some(b=>b.mat===1&&b.hp===20)));await wait(()=>window.__aether.state.attack==='flight');
