@@ -43,3 +43,9 @@
 #lab-result{margin:10px 0 0;font-size:12px;line-height:1.5;color:#dce2d1;font-variant-numeric:tabular-nums}
 @media(max-height:520px) and (min-width:600px){#collapse-panel{width:max-content;max-width:96%;bottom:8px;padding:8px 14px;display:grid;grid-template-columns:auto auto;gap:4px 20px;align-items:center}.lab-heading{gap:15px}.lab-heading h2{font-size:15px}.lab-actions{margin:0}#lab-result{grid-column:1/-1;text-align:center;margin:0}}
 @media(max-width:370px){#collapse-panel{padding:12px}.lab-surfaces button{padding:10px 8px}}
+
+#touch-controls .attacks{display:flex;gap:4px}
+#touch-controls .attacks button{border-radius:8px;width:auto;min-width:44px;height:44px;padding:0 6px;font-size:11px;background:#19393ee8;color:#f5ead0}
+#touch-controls .attacks button[aria-pressed=true]{background:#e5c992;color:#243b39}
+#touch-controls .forward-group{align-items:flex-end}
+@media(max-width:370px){#flight-pad{width:120px;height:120px}#touch-controls{left:10px;right:10px}}

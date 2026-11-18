@@ -27,6 +27,35 @@ try{
  console.log('diagonal lift and yaw without forward',s.position,s.yaw);
  await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);assert.deepEqual((await state()).pad,{x:0,y:0});await wait(()=>{const a=window.__aether.state.attitude;return Math.abs(a.pitch)<.03&&Math.abs(a.bank)<.03;});
  await page.locator('#reset').tap();
+ // Keyboard layout and charge / aim / cancel transitions.
+ await page.keyboard.down('KeyW');await wait(()=>window.__aether.state.position[1]>67);await page.keyboard.up('KeyW');
+ await page.keyboard.down('KeyS');await wait(()=>window.__aether.state.position[1]<63);await page.keyboard.up('KeyS');
+ await page.locator('#reset').tap();await page.keyboard.press('Digit1');
+ assert.equal((await state()).attack,'charge');assert.equal((await state()).beamOn,false);
+ const anchor=(await state()).position;
+ p=await center('#flight-pad');await touch('touchStart',[{x:p.x+35,y:p.y+30,id:1}]);
+ await wait(()=>window.__aether.state.beamOn&&window.__aether.world.shots>0);
+ assert.deepEqual((await state()).position,anchor);assert.ok((await state()).yaw<-.1);
+ assert.ok(await page.locator('#crosshair').isVisible());await touch('touchEnd',[]);await snapshot('sweeping-laser');
+ await page.locator('#laser-button').tap();assert.equal((await state()).attack,'flight');
+ await page.locator('#laser-button').tap();await page.locator('#forward-button').tap();assert.equal((await state()).attack,'flight');
+ await page.locator('#reset').tap();
+ // Head north at the stone gatepost, then through the roof of a wooden house.
+ await page.evaluate(()=>window.__aether.teleport(12,22,18));await page.keyboard.press('Digit2');
+ await wait(()=>window.__aether.state.attack==='return');assert.ok(await page.evaluate(()=>window.__aether.world.blocks.some(b=>b.mat===1&&b.hp===20)));await wait(()=>window.__aether.state.attack==='flight');
+ assert.deepEqual((await state()).position,[12,22,18]);
+ await page.evaluate(()=>window.__aether.teleport(22,25,90));await page.locator('#dash-button').tap();
+ await wait(()=>window.__aether.state.attack==='flight');assert.ok((await state()).position[2]<48);assert.ok((await state()).stats.destroyed>0);
+ const counts=[];
+ for(const height of [30,150]){
+   await page.locator('#reset').tap();await page.evaluate(y=>window.__aether.teleport(0,y,95),height);
+   await page.locator('#rain-button').tap();await page.keyboard.down('Space');
+   await wait(()=>window.__aether.state.position[2]<51);await page.keyboard.up('Space');
+   await page.keyboard.press('Digit3');counts.push(await page.evaluate(()=>window.__aether.state.drops+window.__aether.world.shots));
+   await wait(()=>window.__aether.state.drops===0);assert.ok(await page.evaluate(()=>window.__aether.world.shots>0));
+ }
+ assert.ok(counts[0]>counts[1]);console.log('laser, ram return / penetration and altitude-dependent drops passed',counts);
+ await page.locator('#reset').tap();
  // Two real touch pointers: right thumb throttle plus left thumb diagonal pad.
  p=await center('#flight-pad');f=await center('#forward-button');
  await touch('touchStart',[{...p,id:1},{...f,id:2}]);await touch('touchMove',[{x:p.x-38,y:p.y-38,id:1},{...f,id:2}]);
@@ -47,23 +76,23 @@ try{
  p=await center('#flight-pad');await touch('touchStart',[{x:p.x+45,y:p.y,id:1}]);await touch('touchCancel',[]);await wait(()=>window.__aether.state.pad.x===0);
  f=await center('#forward-button');await touch('touchStart',[{...f,id:2}]);await page.keyboard.press('Escape');assert.equal((await state()).paused,true);assert.deepEqual((await state()).pad,{x:0,y:0});assert.equal(await page.locator('#forward-button').getAttribute('aria-pressed'),'false');await touch('touchEnd',[]);await page.locator('#resume').tap();
  await page.locator('#help').tap();assert.equal(await page.locator('#guide').evaluate(d=>d.open),true);await page.locator('#guide-play').tap();
- // Keyboard and canvas gestures cannot trigger combat in the debug build.
+ // Free-look gestures and the former fire key do not enter an attack mode.
  await page.keyboard.down('KeyF');await page.mouse.move(200,350);await page.mouse.down();await page.waitForTimeout(300);await page.mouse.up();await page.keyboard.up('KeyF');
  s=await state();assert.equal(s.beamOn,false);assert.equal(s.projectiles,0);assert.equal(s.stats.destroyed,0);assert.equal(s.stats.excavated,0);
  await page.setViewportSize({width:844,height:390});await page.waitForTimeout(300);await snapshot('flight-debug-landscape');
  const padBox=await page.locator('#flight-pad').boundingBox(),forwardBox=await page.locator('#forward-button').boundingBox();assert.ok(padBox.x>=0&&padBox.y>=0&&padBox.y+padBox.height<=390);assert.ok(forwardBox.x+forwardBox.width<=844&&forwardBox.y+forwardBox.height<=390);
  // Local bank must follow both turn directions while the independent flight
  // controller continues level. Boost adds forward lean; release eases to hover.
- await page.locator('#reset').tap();await page.keyboard.down('KeyW');await page.keyboard.down('ArrowLeft');
+ await page.locator('#reset').tap();await page.keyboard.down('Space');await page.keyboard.down('ArrowLeft');
  await wait(()=>{const s=window.__aether.state;return s.attitude.bank>.4&&s.yaw>.4;});s=await state();assert.ok(Math.abs(s.position[1]-63)<.01);await snapshot('flight-pose-left-bank');console.log('left bank',s.attitude);
  await page.keyboard.up('ArrowLeft');await wait(()=>Math.abs(window.__aether.state.attitude.bank)<.04);
  await page.keyboard.down('ArrowRight');await wait(()=>window.__aether.state.attitude.bank<-.4);await snapshot('flight-pose-right-bank');console.log('right bank',(await state()).attitude);await page.keyboard.up('ArrowRight');
- await page.keyboard.down('ShiftLeft');await wait(()=>window.__aether.state.attitude.pitch<-.65);console.log('accelerated forward lean',(await state()).attitude);await page.keyboard.up('ShiftLeft');await page.keyboard.up('KeyW');
+ await page.keyboard.down('ShiftLeft');await wait(()=>window.__aether.state.attitude.pitch<-.65);console.log('accelerated forward lean',(await state()).attitude);await page.keyboard.up('ShiftLeft');await page.keyboard.up('Space');
  await wait(()=>{const s=window.__aether.state;return s.speed<.2&&Math.abs(s.attitude.pitch)<.03&&Math.abs(s.attitude.bank)<.03;});
  // The gate counts a passage through the arch, including both faces.
  await page.locator('#reset').tap();
- await page.evaluate(()=>window.__aether.teleport(0,52,28));await page.keyboard.down('KeyW');
- await wait(()=>window.__aether.state.position[2]<0);await page.keyboard.up('KeyW');assert.equal((await state()).courseStage,'gate');
+ await page.evaluate(()=>window.__aether.teleport(0,52,28));await page.keyboard.down('Space');
+ await wait(()=>window.__aether.state.position[2]<0);await page.keyboard.up('Space');assert.equal((await state()).courseStage,'gate');
  await page.locator('#reset').tap();
  p=await center('#flight-pad');f=await center('#forward-button');
  await touch('touchStart',[{...f,id:2}]);
@@ -102,5 +131,5 @@ try{
  await wait(()=>window.__aether);await snapshot('collapse-portrait');
  assert.ok(await page.locator('#lab-break').isVisible());await page.locator('#lab-break').tap();
  await wait(()=>document.querySelector('#lab-result').textContent.includes('最大落下'));
- assert.deepEqual(errors,[]);console.log('PASS: diagonal multitouch, independent flight, left/right bank, climb/descent pitch, speed lean, neutral recovery, cancellation, pause, no combat, landscape and demo');
+ assert.deepEqual(errors,[]);console.log('PASS: diagonal multitouch, independent flight, left/right bank, climb/descent pitch, speed lean, neutral recovery, cancellation, pause, player attacks, landscape and demo');
 }finally{await browser.close();}
