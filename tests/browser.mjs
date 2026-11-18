@@ -14,7 +14,7 @@ const cdp=await page.context().newCDPSession(page);
 const touch=(type,touchPoints)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints});
 try{
  await page.goto('http://127.0.0.1:4173/?test=1');await wait(()=>window.__aether);await page.locator('#start').tap();
- assert.equal((await state()).flightDebug,true);
+ assert.equal((await state()).flightDebug,true);assert.equal((await state()).hero.motion,'hover');
  for(const selector of ['#crosshair','#target-label','.shield','.stat-line'])assert.equal(await page.locator(selector).isVisible(),false);
  assert.equal(await page.locator('#touch-controls').isVisible(),true);assert.equal((await state()).defenderViews,0);assert.equal((await state()).stats.defenders,0);
  console.log('combat UI and enemy views hidden');
@@ -23,7 +23,7 @@ try{
  await touch('touchStart',[{...p,id:1}]);await touch('touchMove',[{x:p.x-38,y:p.y-38,id:1}]);
  await wait(()=>{const s=window.__aether.state;return s.position[1]>66&&s.yaw>.2;});
  let s=await state();assert.ok(Math.abs(s.position[0])<.1&&Math.abs(s.position[2]-142)<.1);assert.equal(s.pitch,0);assert.ok(s.pad.x<-.3&&s.pad.y<-.3);
- assert.ok(s.attitude.pitch>.15&&s.attitude.bank>.12);assert.ok(Math.abs(s.attitude.heading-s.yaw)<.001);
+ assert.equal(s.hero.motion,'left');assert.ok(s.attitude.pitch>.15&&s.attitude.bank>.12);assert.ok(Math.abs(s.attitude.heading-s.yaw)<.001);
  console.log('diagonal lift and yaw without forward',s.position,s.yaw);
  await touch('touchEnd',[]);await wait(()=>window.__aether.state.speed<.2);assert.deepEqual((await state()).pad,{x:0,y:0});await wait(()=>{const a=window.__aether.state.attitude;return Math.abs(a.pitch)<.03&&Math.abs(a.bank)<.03;});
  await page.locator('#reset').tap();
@@ -35,6 +35,7 @@ try{
  const anchor=(await state()).position;
  p=await center('#flight-pad');await touch('touchStart',[{x:p.x+35,y:p.y+30,id:1}]);
  await wait(()=>window.__aether.state.beamOn&&window.__aether.world.shots>0);
+ assert.equal((await state()).hero.motion,'laser');assert.ok((await state()).hero.frame>=4);
  assert.deepEqual((await state()).position,anchor);assert.ok((await state()).yaw<-.1);
  assert.ok(await page.locator('#crosshair').isVisible());await touch('touchEnd',[]);await snapshot('sweeping-laser');
  await page.locator('#laser-button').tap();assert.equal((await state()).attack,'flight');
