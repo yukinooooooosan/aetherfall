@@ -26,7 +26,20 @@ export class FlightManeuver {
   }
   get progress(){return this.time/this.duration;}
   heading(t){return this.startYaw+(this.kind==='flip'?this.side*Math.PI*THREE.MathUtils.smoothstep(t,.19,.53):0);}
-  cameraHeading(t){return this.startYaw+(this.kind==='flip'?this.side*Math.PI*THREE.MathUtils.smoothstep(t,.38,.97):0);}
+  cameraHeading(t){return this.startYaw+(this.kind==='flip'?this.side*Math.PI*THREE.MathUtils.smoothstep(t,.13,1):0);}
+  orbitWeight(t){return Math.sin(Math.PI*t)**2;}
+  orbitOffset(t,chaseRadius,out){
+    // Launch along the actual camera boom, including any lag from banking.
+    const entry=this.cameraOffset;
+    const entryAngle=Math.atan2(entry.x,entry.z)-this.startYaw;
+    const settle=THREE.MathUtils.smoothstep(t,0,.38);
+    const angle=this.cameraHeading(t)+(1-settle)*Math.atan2(Math.sin(entryAngle),Math.cos(entryAngle));
+    const weight=this.orbitWeight(t);
+    const base=THREE.MathUtils.lerp(Math.hypot(entry.x,entry.z),chaseRadius,settle);
+    const radius=THREE.MathUtils.lerp(base,8,weight);
+    const height=THREE.MathUtils.lerp(THREE.MathUtils.lerp(entry.y,5.6,settle),1.25,weight);
+    return out.set(Math.sin(angle)*radius,height,Math.cos(angle)*radius);
+  }
   point(t,out){
     out.copy(this.origin);
     if(this.kind==='loop'){

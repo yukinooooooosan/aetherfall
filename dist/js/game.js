@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { DoubleTap, FlightManeuver } from './maneuvers.js';
+import { DoubleTap, FlightManeuver } from './maneuvers.js?v=0.8.1';
 import { Heroine } from './heroine.js?v=0.8.0';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
@@ -387,6 +387,8 @@ function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
     laserAimRotation.setFromEuler(laserAngles.set(angle,yaw,0));
     laserOffset.copy(rear).sub(playerPos).applyQuaternion(inverseCameraRotation.copy(laserAimRotation).invert());
     blendLaserCamera(THREE.MathUtils.smoothstep(progress,0,1));
+  }else if(maneuver?.kind==='flip'){
+    maneuver.orbitOffset(maneuver.progress,distance,camera.position).add(playerPos);
   }else if(maneuver){
     camera.position.copy(playerPos).add(maneuver.cameraOffset).lerp(rear,THREE.MathUtils.smoothstep(maneuver.progress,0,.23));
   }else camera.position.lerp(rear,1-Math.exp(-dt*response));
@@ -404,6 +406,10 @@ function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
   if(releasing)return;
   const viewForward=playerPos.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
   const target=playerPos.clone().addScaledVector(viewForward,29);target.y-=8+loopLift;
+  if(maneuver?.kind==='flip'){
+    // Ease the gaze from the flight path onto the heroine through the side view.
+    target.lerp(playerPos,maneuver.orbitWeight(maneuver.progress));
+  }
   camera.lookAt(target);
 }
 const chargeDuration=.7,returnDuration=.72,fullReleaseDuration=.54;
@@ -652,7 +658,7 @@ function updateManeuver(dt){
   avatar.position.copy(playerPos);avatar.rotation.set(0,yaw,0);
   velocity.subVectors(playerPos,from).divideScalar(dt);speed=velocity.length();
   const swell=Math.sin(Math.PI*move.progress);
-  updateChaseCamera(dt,14+move.entrySpeed*.035+3*swell,5.6,move.kind==='flip'?19:5,move.cameraHeading(move.progress));
+  updateChaseCamera(dt,14+move.entrySpeed*.035+(move.kind==='loop'?3*swell:0),5.6,5);
   if(blocked||end===move.duration){
     const exitSpeed=blocked?0:move.entrySpeed;
     velocity.set(-Math.sin(yaw)*exitSpeed,0,-Math.cos(yaw)*exitSpeed);speed=exitSpeed;

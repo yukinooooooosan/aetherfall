@@ -138,3 +138,19 @@ test('turns reverse in either direction and the chase camera finishes its orbit 
     assert.ok(flip.point(.5,new Vector3()).z<0);
   }
 });
+
+test('flip shot starts at the current camera, tracks close to the subject and exits behind the new heading',()=>{
+  const out=new Vector3();
+  for(const side of [-1,1]){
+    const turn=new FlightManeuver('flip',new Vector3(8,68,23),.7,32,side);
+    turn.cameraOffset=new Vector3(6,7,17);
+    assert.ok(turn.orbitOffset(0,15,out).distanceTo(turn.cameraOffset)<1e-8);
+    turn.orbitOffset(.5,15,out);
+    assert.ok(Math.abs(Math.hypot(out.x,out.z)-8)<1e-8);
+    assert.ok(Math.abs(out.y-1.25)<1e-8);
+    assert.equal(turn.orbitWeight(.5),1);
+    turn.orbitOffset(1,15,out);
+    const exit=.7+side*Math.PI;
+    assert.ok(out.distanceTo(new Vector3(15*Math.sin(exit),5.6,15*Math.cos(exit)))<1e-8);
+  }
+});
