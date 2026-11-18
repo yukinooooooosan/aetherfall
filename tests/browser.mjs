@@ -71,8 +71,9 @@ try{
  await wait(()=>window.__aether.state.attack==='flight');assert.ok((await state()).position[2]<48);assert.ok((await state()).stats.destroyed>0);
  for(const [height,expected] of [[28,5],[170,1]]){
    await page.locator('#reset').tap();
-   await page.evaluate(y=>window.__aether.teleport(0,y,95),height);
+   await page.evaluate(y=>window.__aether.teleport(0,y,480),height);
    assert.equal((await state()).storm.visible,false);
+   await page.keyboard.down('Space');await wait(()=>window.__aether.state.speed>31);
    await page.locator('#rain-button').tap();
    await page.waitForFunction(()=>window.__aether.state.storm.pass>=6,null,{timeout:45000});
    const storm=(await state()).storm;
@@ -81,22 +82,41 @@ try{
    assert.ok(Math.abs(hit.x-hit.cx-hit.side*3.2*Math.cos(hit.yaw))<.001);
    assert.ok(Math.abs(hit.z-hit.cz+hit.side*3.2*Math.sin(hit.yaw))<.001);
    assert.ok(hit.hit<hit.y);
+   await page.keyboard.up('Space');
+   await wait(()=>window.__aether.state.speed<.2);
+   const stopped=(await state()).storm;
+   await page.waitForFunction(pass=>window.__aether.state.storm.pass>=pass+2,stopped.pass,{timeout:30000});
+   assert.equal((await state()).storm.count,stopped.count);
    await page.keyboard.press('Digit3');
    await wait(()=>window.__aether.state.storm.rift===1&&!window.__aether.state.storm.visible);
-   assert.equal((await state()).storm.count,expected);
+   assert.equal((await state()).storm.count,stopped.count);
  }
  await page.locator('#reset').tap();
- const roof=await page.evaluate(()=>{
-   const world=window.__aether.world;
-   const tower=world.blocks.filter(b=>b.x===12&&b.z===8&&b.alive).sort((a,b)=>b.y-a.y)[0];
-   window.__aether.teleport(tower.x+3.2,tower.y+16,tower.z);
-   return {x:tower.x,y:tower.y+1,z:tower.z};
- });
  await page.keyboard.press('Digit3');
- await wait(()=>window.__aether.state.storm.count>=1);
- const roofHit=(await state()).storm.last;
- assert.ok(Math.hypot(roofHit.x-roof.x,roofHit.hit-roof.y,roofHit.z-roof.z)<.01);
- console.log('laser, ram, summon, lateral roof strikes and altitude cadence passed');
+ await page.keyboard.down('KeyW');await page.keyboard.down('KeyA');
+ await page.waitForFunction(()=>window.__aether.state.storm.pass>=3,null,{timeout:30000});
+ await page.keyboard.up('KeyW');await page.keyboard.up('KeyA');
+ assert.equal((await state()).storm.count,0);
+ // Replay a measured slow pass over a single gatepost. Its first two side
+ // crossings satisfy the low-altitude timer, but have insufficient distance.
+ const slow=await page.evaluate(async()=>{
+   const {StormCompanion}=await import('/js/companion.js?v=0.9.1');
+   const THREE=await import('/vendor/three.module.js');
+   const world=window.__aether.world,camera=new THREE.PerspectiveCamera();
+   const post=world.blocks.filter(b=>b.x===12&&b.z===8&&b.alive).sort((a,b)=>b.y-a.y)[0];
+   const robot=new StormCompanion(new THREE.Texture());robot.toggle();
+   const start=new THREE.Vector3(post.x+3.2,post.y+5,post.z+30);
+   const from=start.clone(),to=start.clone(),dt=.05;
+   for(let i=1;i<=62;i++){
+     from.copy(to);to.z=start.z-10*i*dt;
+     robot.update(dt,from,to,0,0,camera,world);
+     if(i<=59&&robot.count)return {early:true};
+   }
+   return {count:robot.count,hit:robot.lastStrike,roof:post.y+1};
+ });
+ assert.equal(slow.count,1);
+ assert.ok(Math.hypot(slow.hit.x-12,slow.hit.hit-slow.roof,slow.hit.z-8)<.01);
+ console.log('storm distance, altitude, stop, vertical turn and roof hits passed');
  await page.locator('#reset').tap();
  // Two real touch pointers: right thumb throttle plus left thumb diagonal pad.
  p=await center('#flight-pad');f=await center('#forward-button');

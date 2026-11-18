@@ -4,6 +4,7 @@ import {SummonRift} from './rift.js';
 
 const turnSeconds=2, orbitRadius=3.2, turn=Math.PI*2;
 const spriteSize=2.65/2, rate=turn/turnSeconds;
+const metresPerPass=24, stoppedSpeed=.5;
 const spacing=altitude=>altitude<45?1:altitude<110?3:5;
 
 function ribbon(points,width,right,positions,colors){
@@ -61,12 +62,12 @@ export class StormCompanion extends THREE.Group {
     this.rift=new SummonRift();this.reset();
   }
   reset(){
-    this.rift.time=1;this.phase=Math.PI/2;this.count=0;this.pass=0;this.lastPass=-Infinity;
+    this.rift.time=1;this.phase=Math.PI/2;this.count=0;this.pass=0;this.lastPass=-Infinity;this.flightDistance=0;
     this.enabled=false;this.lastStrike=null;this.flashAge=1;
     this.visible=this.charge.visible=this.bolt.visible=false;
   }
   toggle(){
-    this.enabled=!this.enabled;this.lastPass=-Infinity;
+    this.enabled=!this.enabled;this.lastPass=-Infinity;this.flightDistance=0;
     if(this.enabled)this.phase=Math.PI/2;
     else{this.body.visible=this.charge.visible=false;}
     this.rift.start(this.enabled);
@@ -89,13 +90,20 @@ export class StormCompanion extends THREE.Group {
     const start=this.phase,end=start+dt*rate;
     const boundary=Math.PI*.5+Math.PI*Math.ceil((start-Math.PI*.5)/Math.PI);
     const ground=world.terrainHeight(to.x,to.z),interval=spacing(to.y-ground);
+    const travel=Math.hypot(to.x-from.x,to.z-from.z);
+    const moving=travel>stoppedSpeed*dt, needed=metresPerPass*interval;
+    const previousDistance=this.flightDistance;
+    this.flightDistance=moving?previousDistance+travel:0;
     this.cameraRight.set(1,0,0).applyQuaternion(camera.quaternion);
     this.cameraRight.y=0;this.cameraRight.normalize();
     this.flashAge+=dt;
     if(boundary<end){
       this.pass++;
-      if(this.rift.time>=1&&this.pass-this.lastPass>=interval){
-        const fraction=(boundary-start)/(end-start),center=this.socket.lerpVectors(from,to,fraction);
+      const fraction=(boundary-start)/(end-start);
+      // Only ground distance already flown at this precise side crossing counts.
+      if(moving&&previousDistance+travel*fraction>=needed&&this.rift.time>=1&&this.pass-this.lastPass>=interval){
+        this.flightDistance=travel*(1-fraction);
+        const center=this.socket.lerpVectors(from,to,fraction);
         const angle=THREE.MathUtils.lerp(oldYaw,yaw,fraction);
         const origin=this.locate(center,angle,boundary,new THREE.Vector3());
         const base=world.terrainHeight(origin.x,origin.z);
@@ -122,7 +130,8 @@ export class StormCompanion extends THREE.Group {
     const frame=(Math.round(Math.atan2(tx*Math.cos(toward)-tz*Math.sin(toward),tx*Math.sin(toward)+tz*Math.cos(toward))/(turn/8))+8)%8;
     this.body.material.map.offset.set((frame%4)/4,frame<4?.5:0);
     const next=(Math.PI*.5+Math.PI*Math.ceil((this.phase-Math.PI*.5)/Math.PI)-this.phase)/rate;
-    const charge=this.rift.time>=1&&this.pass+1-this.lastPass>=interval?THREE.MathUtils.smoothstep(.24-next,0,.24):0;
+    const readyAtNext=moving&&this.flightDistance+travel/dt*next>=needed;
+    const charge=readyAtNext&&this.rift.time>=1&&this.pass+1-this.lastPass>=interval?THREE.MathUtils.smoothstep(.24-next,0,.24):0;
     const spark=Math.max(charge,Math.max(0,1-this.flashAge/.12));
     this.charge.visible=spark>.03;this.charge.position.copy(this.socket);this.charge.scale.setScalar(.18+.82*spark);this.charge.material.opacity=spark;
     this.bolt.visible=this.flashAge<.22;
