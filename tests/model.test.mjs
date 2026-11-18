@@ -24,6 +24,17 @@ test('an intact generated town is structurally stable',()=>{
 test('citizens flee an impact and their panic settles later',()=>{
   const w=new World();const h=w.humans[0],x=h.x,z=h.z;w.impact(x-5,h.y,z,3,1);assert.ok(h.panic>0);assert.ok(h.dx>0);w.tick(.3,null);assert.ok(Math.hypot(h.x-x,h.z-z)>0);for(let i=0;i<100;i++)w.tick(.1,null);assert.equal(h.panic,0);
 });
+test('a low flyby sends pedestrians ahead to opposite sides of the avenue',()=>{
+  const w=new World();
+  const people=w.humans.slice(0,3);
+  people.forEach((h,i)=>Object.assign(h,{x:i===0?-2:2,y:16,z:i===2?74:55}));
+  const flight={x:0,y:0,z:-32};
+  w.tick(.1,{x:0,y:60,z:70},flight);
+  assert.ok(people.every(h=>h.panic===0));
+  w.tick(.1,{x:0,y:25,z:70},flight);
+  assert.ok(people[0].dx<0&&people[1].dx>0);
+  assert.ok(people[0].panic>0&&people[1].panic>0);assert.equal(people[2].panic,0);
+});
 test('catapults and mages fire and destroying their foundations stops retaliation',()=>{
   const w=new World();for(const d of w.defenders)d.cooldown=0;w.tick(.1,{x:0,y:50,z:60});assert.equal(w.defenders.filter(d=>d.alive).length,6);const shots=w.drainEvents().filter(e=>e.type==='shot');assert.ok(shots.some(e=>e.kind==='catapult'));assert.ok(shots.some(e=>e.kind==='mage'));
   const d=w.defenders[0];for(const id of w.buildings[d.building].blocks)w.remove(w.blocks[id]);d.cooldown=0;w.tick(.1,{x:d.x,y:50,z:d.z});assert.equal(d.alive,false);assert.equal(w.drainEvents().some(e=>e.type==='shot'&&e.x===d.x&&e.z===d.z),false);

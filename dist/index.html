@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#172d32">
-  <meta name="description" content="前進ボタンとバーチャルパッドで、上下移動と旋回を試す飛行デバッグ版。">
+  <meta name="description" content="城下町を低空で飛び、石の城門をくぐって青緑の塔を回る3D飛行コース。">
   <title>AETHERFALL — 神域の残響</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c5a46b' d='m16 1 5 10 10 5-10 5-5 10-5-10-10-5 10-5z'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css?v=0.3.1">
+  <link rel="stylesheet" href="./style.css?v=0.4.0">
 </head>
 <body class="flight-debug">
   <main id="game" aria-label="AETHERFALL 3D飛行ゲーム">
@@ -17,7 +17,7 @@
       <div class="top-status"><i></i> FLIGHT DEBUG <span>/ 02</span></div>
       <nav aria-label="ゲーム設定">
         <button id="audio" class="icon-button" title="サウンドの切り替え" aria-label="サウンドをオン" aria-pressed="false">♪<span class="mute-line"></span></button>
-        <button id="reset" class="icon-button" title="世界を再生成 R" aria-label="世界を再生成">↻</button>
+        <button id="reset" class="icon-button" title="コースの入口に戻る R" aria-label="コースの入口に戻る">↻</button>
         <button id="help" class="icon-button" title="操作ガイド H" aria-label="操作ガイド">?</button>
         <button id="pause" class="icon-button" title="一時停止 Esc" aria-label="一時停止">Ⅱ</button>
       </nav>
@@ -25,21 +25,21 @@
     <section id="intro" aria-labelledby="intro-title">
       <div class="eyebrow"><span></span> DIVINE FLIGHT SANDBOX</div>
       <h1 id="intro-title">空から、<br>世界に触れる。</h1>
-      <p class="intro-copy">まずは、飛ぶことを楽しもう。<br>左パッドで上下と旋回。右ボタンで前進。</p>
-      <div class="intro-actions"><button id="start" class="primary">飛行をはじめる <span>↗</span></button><button id="demo" class="secondary">飛行デモを見る <span>▷</span></button></div>
+      <p class="intro-copy">大通りを降下して、城門の先の青緑の塔へ。<br>左パッドで上下と旋回。右ボタンで前進。</p>
+      <div class="intro-actions"><button id="start" class="primary">飛行をはじめる <span>↗</span></button><button id="demo" class="secondary">コースの見本を見る <span>▷</span></button></div>
       <div class="intro-spec"><span>前進</span><i>·</i><span>独立した上下移動</span><i>·</i><span>斜めパッド操作</span></div>
       <p class="loading" id="loading">地上を創造しています…</p>
     </section>
     <aside id="region"><div class="eyebrow">THE FIRST REALM</div><h2>翠嶺の王国 <span>エルデ</span></h2><div class="region-line"></div><p>風の向くままに。翼の感触を確かめよう。</p></aside>
     <section id="hud" hidden>
-      <div class="objective"><div class="eyebrow">FREE FLIGHT <span id="mode-label">FLIGHT DEBUG</span></div><h2>翼の感触を、確かめる。</h2><p>左パッドで上下・旋回。右ボタンで前進。</p><div class="stat-line" data-combat><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
+      <div class="objective"><div class="eyebrow">FREE FLIGHT <span id="mode-label">FLIGHT DEBUG</span></div><h2 id="course-title">南の城門をくぐる</h2><p id="course-hint">大通りに沿って、赤い屋根の高さまで下降。</p><div class="stat-line" data-combat><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
       <div id="crosshair" data-combat><span></span><i></i></div><div id="target-label" data-combat></div>
       <div class="telemetry"><div class="speed"><strong id="speed">0</strong><span>km/h</span><small>VELOCITY</small></div><div class="telemetry-divider"></div><div class="altitude"><small>ALTITUDE</small><strong><span id="altitude">0</span><em>m</em></strong></div><small id="flight-state">HOVERING</small><div class="shield" data-combat><div><span>神威</span><b id="health-label">100</b></div><div class="meter"><i id="health-bar"></i></div></div></div>
       <div class="map-panel"><div class="map-title"><span>ELDE / 地表観測</span><span id="fps">— FPS</span></div><canvas id="minimap" width="180" height="150" aria-label="街と自分の位置のミニマップ"></canvas><div class="map-key"><i></i> あなた <i data-combat></i><span data-combat>反撃拠点</span></div></div>
       <div id="toast" role="status"></div>
       <div id="demo-badge" hidden>自動デモ <span>·</span> <button id="take-control">操作を始める ↗</button></div>
     </section>
-    <footer><span id="footer-left">AN EXPERIMENT IN FLIGHT</span><div class="control-strip"><span><kbd>W</kbd> 前進</span><span><kbd>↑ ↓</kbd> 上下</span><span><kbd>← →</kbd> 旋回</span><span><kbd>H</kbd> ガイド</span></div><span class="version">α 0.3.1</span></footer>
+    <footer><span id="footer-left">AN EXPERIMENT IN FLIGHT</span><div class="control-strip"><span><kbd>W</kbd> 前進</span><span><kbd>↑ ↓</kbd> 上下</span><span><kbd>← →</kbd> 旋回</span><span><kbd>H</kbd> ガイド</span></div><span class="version">α 0.4.0</span></footer>
     <section id="touch-controls" hidden aria-label="飛行操作">
       <div class="pad-group"><div id="flight-pad" role="group" aria-label="バーチャルパッド：上下で昇降、左右で旋回、斜めで同時操作"><span class="pad-up">↑</span><span class="pad-down">↓</span><span class="pad-left">←</span><span class="pad-right">→</span><i id="pad-knob"></i></div><p>上下・旋回 <span>斜めもOK</span></p></div>
       <div class="forward-group"><button id="forward-button" data-key="KeyW" aria-label="押して前進、離して減速" aria-pressed="false"><span>前進</span><small>HOLD</small></button><p>離すと減速・停止</p></div>
@@ -48,6 +48,6 @@
     <div id="pause-screen" hidden><div class="eyebrow">TAKE A BREATH</div><h2>風は、待っている。</h2><button id="resume" class="primary">飛行を再開 <span>↗</span></button></div>
     <div id="fatal" hidden role="alert"><h2>3D画面を開始できませんでした</h2><p id="fatal-message"></p><p>WebGL 2対応ブラウザで、ハードウェアアクセラレーションを有効にしてお試しください。</p></div>
   </main>
-  <script type="module" src="./js/game.js?v=0.3.1"></script>
+  <script type="module" src="./js/game.js?v=0.4.0"></script>
 </body>
 </html>

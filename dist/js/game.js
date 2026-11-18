@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { World, MATERIALS, BLOCK, random } from './model.js';
+import { World, MATERIALS, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.4.0';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -13,6 +13,19 @@ let pausedBeforeGuide=false;
 let elapsed=0,fireClock=0,simClock=0,hudClock=0,toastClock=0,hitClock=0,frameCount=0,fps=60,lastHudTime=0;
 let yaw=0,pitch=-.08,health=100,velocity=new THREE.Vector3(),speed=0,aim=new THREE.Vector3(),aimHit=null;
 const playerPos=new THREE.Vector3(0,63,142),forward=new THREE.Vector3(),temp=new THREE.Object3D(),v3=new THREE.Vector3(),ray=new THREE.Raycaster();
+const startPosition=playerPos.clone(),lastPosition=new THREE.Vector3();
+let courseStage='gate',insideGate=false,towerArc=0;
+const courseHints={
+  gate:['南の城門をくぐる','大通りに沿って、赤い屋根の高さまで下降。'],
+  tower:['青緑の塔を左に回る','塔を左手に、左上の斜め入力で屋根を越えよう。'],
+  clear:['城門コースを完走','↻ でもう一度。続けて自由に飛べます。']
+};
+const demoRoute=new THREE.CatmullRomCurve3([
+  startPosition,[0,45,99],[0,28,58],[0,25,19],[0,25,5],[-4,29,-10],
+  [-16,37,-29],[-36,49,-34],[-54,58,-24],[-63,63,-1],
+  [-74,69,64],[-49,74,137],[-14,69,160]
+].map(p=>p.isVector3?p:new THREE.Vector3(...p)),true);
+const demoLength=demoRoute.getLength(),demoTangent=new THREE.Vector3(),demoNext=new THREE.Vector3();
 let avatar,avatarPose,leftWing,rightWing,halo,cape,beam,beamCore,impactGlow,windLines,audioCtx,windGain,beamGain,windFilter;
 const particleCapacity=900,particleData=[],particleGeo=new THREE.BoxGeometry(1,1,1),particleMat=new THREE.MeshLambertMaterial({color:0xffffff});
 let particles;const beamMaterial=new THREE.MeshBasicMaterial({color:0xffd388,transparent:true,opacity:.19,depthWrite:false,blending:THREE.AdditiveBlending});
@@ -68,9 +81,42 @@ function rebuildWorld(notify=true){
   world=new World();
   if(FLIGHT_DEBUG){for(const d of world.defenders)for(const id of world.buildings[d.building].blocks)world.blocks[id].alive=false;world.defenders=[];}
   buildTerrain();buildBlocks();buildHumans();if(!FLIGHT_DEBUG)buildDefenders();buildTrees();
-  health=100;playerPos.set(0,63,142);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
+  health=100;playerPos.copy(startPosition);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
+  resetCourse();
+  if(active){elapsed=0;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
   avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);
-  if(notify)toast('世界を再創造しました');
+  if(notify){toastClock=0;$('#toast').classList.remove('visible');}
+}
+
+function showCourse(stage){
+  courseStage=stage;
+  const [title,hint]=courseHints[stage];
+  $('#course-title').textContent=title;$('#course-hint').textContent=hint;
+}
+function resetCourse(){
+  insideGate=false;towerArc=0;showCourse('gate');
+}
+function crossedOpening(before,after,z){
+  if(before.z<=z||after.z>z)return false;
+  const t=(before.z-z)/(before.z-after.z);
+  const x=lerp(before.x,after.x,t),altitude=lerp(before.y,after.y,t)-gate.ground;
+  return altitude>=2&&altitude+.6<gateClearance(x);
+}
+function updateCourse(before,after){
+  const entry=gate.z+gate.halfDepth,exit=gate.z-gate.halfDepth;
+  if(crossedOpening(before,after,entry))insideGate=true;
+  if(insideGate){
+    if(crossedOpening(before,after,exit)){insideGate=false;towerArc=0;showCourse('tower');}
+    else if(after.z>entry||after.y+.6>=gate.ground+gateClearance(after.x))insideGate=false;
+  }
+  if(courseStage!=='tower')return;
+  const x=after.x-westTower.x,z=after.z-westTower.z;
+  const radius=Math.hypot(x,z);
+  if(radius<8||radius>60){towerArc=0;return;}
+  const px=before.x-westTower.x,pz=before.z-westTower.z;
+  const angle=Math.atan2(pz*x-px*z,px*x+pz*z);
+  towerArc=Math.max(0,towerArc+angle);
+  if(x<0&&towerArc>=1.9&&after.y>westTower.peak)showCourse('clear');
 }
 
 function buildTerrain(){
@@ -81,7 +127,10 @@ function buildTerrain(){
     const noise=((x*137+z*331)%11)/11;let c=new THREE.Color().setHSL(.25+noise*.025,.21+noise*.08,.35+noise*.06).getHex();
     if(h>9)c=new THREE.Color().setHSL(.2,.10,.48+noise*.12).getHex();
     if(h===1)c=0xb4ab7a;
-    if(Math.abs(x0+2)<5&&z0>-65&&z0<95||Math.abs(z0-16)<3&&Math.abs(x0)<66)c=0xa99f7e;
+    const wx=x0+2,wz=z0+2,turnRadius=Math.hypot(wx-westTower.x,wz-westTower.z);
+    const avenue=Math.abs(wx)<8&&wz>=-10&&wz<102;
+    const bend=wz<westTower.z&&Math.abs(turnRadius-32)<6;
+    if(avenue||bend||Math.abs(z0-16)<3&&Math.abs(x0)<66)c=(x+z)%3===0?0xa99372:0xb19e7d;
     if(h<world.originalHeights[i])c=world.originalHeights[i]-h<3?0x887655:0x7f8177;
     face([[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]],c);
     const dirs=[[1,0],[0,1],[-1,0],[0,-1]];
@@ -100,7 +149,7 @@ function buildTerrain(){
 }
 function buildBlocks(){
   blockMesh=new THREE.InstancedMesh(new THREE.BoxGeometry(1.94,1.94,1.94),material(0xffffff),world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
-  const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
+  const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(b.color??MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
   blockMesh.instanceMatrix.needsUpdate=true;blockMesh.instanceColor.needsUpdate=true;scene.add(blockMesh);
 }
 function updateBlocks(){
@@ -159,7 +208,11 @@ function createAvatar(){
   halo=mesh(new THREE.TorusGeometry(.32,.025,4,20),new THREE.MeshBasicMaterial({color:0xf5d491}),a);halo.rotation.x=Math.PI/2;halo.position.y=1.2;
   const wing=(side)=>{const root=new THREE.Group();root.position.set(side*.2,.4,.12);for(let i=0;i<6;i++){
     const g=new THREE.BufferGeometry(),x1=side*(.25+i*.26),x2=side*(.75+i*.23),y=.3+i*.07;
-    g.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,x1,y,.12,x2,-.5-i*.14,.3,x1*.8,-.2-i*.09,.25],3));g.setIndex([0,1,2,0,2,3]);g.computeVertexNormals();mesh(g,material(i%2?0xf3e4c6:0xe1d3b6,{side:THREE.DoubleSide}),root);
+    const joint=[0,0,0],edge=[x1,y,.12],tip=[x2,-.5-i*.14,.3],fold=[x1*.87,-.12-i*.08,.43],under=[x1*.7,-.24-i*.11,.2];
+    g.setAttribute('position',new THREE.Float32BufferAttribute([...joint,...edge,...fold,...edge,...tip,...fold,...fold,...tip,...under,...joint,...fold,...under],3));
+    const shades=[1,1,.47,.47].flatMap(shade=>Array(3).fill([shade,shade,shade]).flat());
+    g.setAttribute('color',new THREE.Float32BufferAttribute(shades,3));g.computeVertexNormals();
+    mesh(g,material(i%2?0xf3e4c6:0xe1d3b6,{side:THREE.DoubleSide,vertexColors:true}),root);
   }a.add(root);return root;};leftWing=wing(-1);rightWing=wing(1);return root;
 }
 function updateAvatarPose(dt,horizontalSpeed,verticalSpeed,turn){
@@ -229,6 +282,16 @@ function updateChaseCamera(dt,distance,height,response){
   const heading=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
   const rear=playerPos.clone().addScaledVector(heading,-distance);rear.y+=height;
   camera.position.lerp(rear,1-Math.exp(-dt*response));
+  // Pull the camera inside the arch when masonry would hide the avatar.
+  const boom=camera.position.clone().sub(playerPos),length=boom.length();
+  boom.normalize();
+  for(let d=1;d<length+.75;d+=.75){
+    const sample=v3.copy(playerPos).addScaledVector(boom,Math.min(d,length));
+    const id=world.grid.get(`${Math.round(sample.x/2)},${Math.floor(sample.y/2)},${Math.round(sample.z/2)}`);
+    if((id!==undefined&&world.blocks[id].alive)||sample.y<world.terrainHeight(sample.x,sample.z)+.45){
+      camera.position.copy(playerPos).addScaledVector(boom,Math.max(.65,d-1.25));break;
+    }
+  }
   // Aim along the camera-to-player bearing, so follow lag during a turn does
   // not push the character to either side of the screen.
   const viewForward=playerPos.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
@@ -265,13 +328,22 @@ function updateAttract(dt){
   const cam=playerPos.clone().add(new THREE.Vector3(16,9,29));camera.position.lerp(cam,1-Math.exp(-dt*1.4));camera.lookAt(-7,22,-19);
 }
 function updateDemo(dt){
-  const a=elapsed*.12;playerPos.set(Math.sin(a)*91,53+Math.sin(a*.8)*12,24+Math.cos(a)*100);
-  const vx=Math.cos(a)*10.92,vz=-Math.sin(a)*12,vy=Math.cos(a*.8)*1.152;
-  forward.set(vx,0,vz).normalize();yaw=Math.atan2(-vx,-vz);pitch=0;
-  avatar.position.copy(playerPos);updateAvatarPose(dt,Math.hypot(vx,vz),vy,.2);leftWing.rotation.z=Math.sin(elapsed*4)*.15;rightWing.rotation.z=-leftWing.rotation.z;
-  updateChaseCamera(dt,17,6,3);speed=Math.hypot(vx,vy,vz);
-  const b=world.buildings[Math.floor(elapsed/3)%14];const live=b.blocks.map(i=>world.blocks[i]).find(v=>v.alive&&v.mat===0);
-  if(live){aim.set(live.x,live.y,live.z);aimHit={type:'block',block:live};}else{aim.set(b.x,world.terrainHeight(b.x,b.z),b.z);aimHit={type:'terrain'};}
+  const u=elapsed*32/demoLength%1;
+  if(u<dt*32/demoLength)resetCourse();
+  demoRoute.getPointAt(u,playerPos);demoRoute.getTangentAt(u,demoTangent);
+  demoRoute.getTangentAt((u+.12*32/demoLength)%1,demoNext);
+  const turnAngle=Math.atan2(demoTangent.z*demoNext.x-demoTangent.x*demoNext.z,demoTangent.x*demoNext.x+demoTangent.z*demoNext.z);
+  yaw=Math.atan2(-demoTangent.x,-demoTangent.z);pitch=0;speed=32;
+  velocity.copy(demoTangent).multiplyScalar(speed);forward.copy(demoTangent);
+  avatar.position.copy(playerPos);updateAvatarPose(dt,Math.hypot(velocity.x,velocity.z),velocity.y,clamp(turnAngle/(.12*1.35),-1,1));
+  leftWing.rotation.z=Math.sin(elapsed*4)*.15;rightWing.rotation.z=-leftWing.rotation.z;
+  updateChaseCamera(dt,15,5.6,5);
+  if(!FLIGHT_DEBUG){
+    const building=world.buildings[Math.floor(elapsed/3)%14];
+    const target=building.blocks.map(id=>world.blocks[id]).find(b=>b.alive&&b.mat===0);
+    if(target){aim.set(target.x,target.y,target.z);aimHit={type:'block',block:target};}
+    else{aim.set(building.x,world.terrainHeight(building.x,building.z),building.z);aimHit={type:'terrain'};}
+  }
 }
 function updateBeam(dt){
   beamOn=!FLIGHT_DEBUG&&active&&!paused&&(demo?Math.sin(elapsed*1.2)>.0:pointerDown||keys.has('KeyF'));
@@ -317,9 +389,9 @@ function updateHud(){
 function loop(now){
   requestAnimationFrame(loop);const rawDt=lastHudTime?(now-lastHudTime)/1000:.016,dt=Math.min(.08,rawDt);lastHudTime=now;frameCount++;fps=lerp(fps,1/Math.max(rawDt,.001),.08);
   if(!paused){
-    elapsed+=dt;hitClock=Math.max(0,hitClock-dt);if(active){if(demo)updateDemo(dt);else updateFlight(dt);}else updateAttract(dt);
+    elapsed+=dt;hitClock=Math.max(0,hitClock-dt);if(active){lastPosition.copy(playerPos);if(demo)updateDemo(dt);else updateFlight(dt);if(FLIGHT_DEBUG)updateCourse(lastPosition,playerPos);}else updateAttract(dt);
     if(!FLIGHT_DEBUG&&!demo)aimHit=castAim();updateBeam(dt);
-    simClock+=dt;if(simClock>=.05){world.tick(simClock,active&&!FLIGHT_DEBUG?playerPos:null);simClock=0;processEvents();updateBlocks();if(world.terrainDirty)buildTerrain();}
+    simClock+=dt;if(simClock>=.05){world.tick(simClock,active?playerPos:null,FLIGHT_DEBUG?velocity:null);simClock=0;processEvents();updateBlocks();if(world.terrainDirty)buildTerrain();}
     if(active&&!FLIGHT_DEBUG){updateProjectiles(dt);health=Math.min(100,health+dt*1.1);}
     updateParticles(dt);updateWorldViews(dt);hudClock+=dt;if(hudClock>.15){hudClock=0;updateHud();}
     if(toastClock>0){toastClock-=dt;if(toastClock<=0)$('#toast').classList.remove('visible');}
@@ -327,7 +399,7 @@ function loop(now){
   renderer.render(scene,camera);
 }
 
-function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FLIGHT DEBUG';document.body.classList.add('playing');$('#touch-controls').hidden=demo;playerPos.set(0,63,142);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));if(!demo)toast('左パッドで上下・旋回 / 右ボタンを押して前進');}
+function begin(asDemo=false){active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FLIGHT DEBUG';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
 function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
@@ -363,5 +435,5 @@ pad.addEventListener('pointerdown',e=>{if(!active||paused||demo||padInput.pointe
 pad.addEventListener('pointermove',movePad);
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('demo'))begin(true);
-  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,yaw,pitch,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
+  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}

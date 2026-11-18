@@ -1,5 +1,12 @@
 // Engine-independent world state. Units are metres; +Y is up.
 export const BLOCK = 2;
+export const gate = {z:8, halfDepth:3, ground:16};
+export const westTower = {x:-32, z:-10, peak:50};
+// Heights of the stepped arch, measured from the road surface.
+export function gateClearance(x){
+  const column=Math.abs(Math.round(x/BLOCK));
+  return column<=3?20:column===4?18:column===5?16:0;
+}
 export const MATERIALS = [
   {name:'木材', color:0x89603e, hp:28, ignition:17, fuel:5.5, spread:12},
   {name:'石材', color:0xc1b69d, hp:100, ignition:Infinity, fuel:0, spread:0},
@@ -25,15 +32,15 @@ export class World {
       let h=r>1+wave*.08?0:Math.max(1,Math.round(1+(1-r)*5+wave));
       h+=Math.round(12*Math.exp(-((wx+57)**2/1500+(wz+119)**2/900)));
       h+=Math.round(7*Math.exp(-((wx-92)**2/800+(wz+86)**2/1200)));
-      if(Math.abs(wx)<66&&wz>-64&&wz<94)h=4;
+      if(Math.abs(wx)<66&&wz>-84&&wz<94)h=4;
       this.heights[z*this.size+x]=h;
     }
     this.originalHeights.set(this.heights);
   }
   terrainHeight(x,z){const ix=Math.floor((x+this.half)/this.cell),iz=Math.floor((z+this.half)/this.cell);return ix<0||iz<0||ix>=this.size||iz>=this.size?0:this.heights[iz*this.size+ix]*4;}
-  addBlock(gx,gy,gz,mat,building){
+  addBlock(gx,gy,gz,mat,building,color){
     const k=key(gx,gy,gz);if(this.grid.has(k))return;
-    const v={id:this.blocks.length,gx,gy,gz,x:gx*2,y:gy*2+1,z:gz*2,mat,building,hp:MATERIALS[mat].hp,heat:0,burn:0,alive:true};
+    const v={id:this.blocks.length,gx,gy,gz,x:gx*2,y:gy*2+1,z:gz*2,mat,building,color,hp:MATERIALS[mat].hp,heat:0,burn:0,alive:true};
     this.blocks.push(v);this.grid.set(k,v.id);this.buildings[building].blocks.push(v.id);
     const sk=key(Math.floor(v.x/8),Math.floor(v.y/8),Math.floor(v.z/8));
     if(!this.spatial.has(sk))this.spatial.set(sk,[]);this.spatial.get(sk).push(v.id);
@@ -50,8 +57,8 @@ export class World {
   }
   generateTown(){
     for(const [x,z,wood] of [[-48,22,true],[-30,24,true],[18,24,true],[39,22,false],[-48,44,true],[-29,45,true],[18,46,true],[40,45,true],[-46,69,false],[-26,70,true],[18,71,true],[40,69,true],[-48,-5,true],[39,-4,false]])this.house(x,z,wood);
-    const id=this.building('白亜の城',0,-33),base=8;
-    const block=(x,y,z,m=1)=>this.addBlock(x,base+y,z,m,id);
+    const id=this.building('白亜の城',26,-53),base=8;
+    const block=(x,y,z,m=1)=>this.addBlock(x+13,base+y,z-10,m,id);
     for(let x=-10;x<=10;x++)for(let z=-27;z<=-9;z++)for(let y=0;y<9;y++){
       if(x===-10||x===10||z===-27||z===-9){if(z===-9&&Math.abs(x)<2&&y<4)continue;block(x,y,z);}
       if(y===0||y===7)block(x,y,z,y===7?0:1);
@@ -61,12 +68,30 @@ export class World {
       for(let x=0;x<5;x++)for(let z=0;z<5;z++)for(let y=0;y<14;y++)if(x===0||z===0||x===4||z===4||y===13)block(tx+x,y,tz+z);
       for(let y=0;y<4;y++)for(let x=-1+y;x<=5-y;x++)for(let z=-1+y;z<=5-y;z++)block(tx+x,14+y,tz+z,2);
     }
-    // Defensive outer wall, including a genuine gap for the gate.
-    const wall=this.building('外壁',0,5);
-    for(let x=-31;x<=31;x++)for(let y=8;y<12;y++)if(Math.abs(x)>3)this.addBlock(x,y,4,1,wall);
-    for(let z=-32;z<5;z++)for(let y=8;y<12;y++)for(const x of [-31,31])this.addBlock(x,y,z,1,wall);
+    const wall=this.building('南の城門',0,gate.z);
+    for(let x=-31;x<=31;x++)for(let y=8;y<12;y++)if(Math.abs(x)>8)this.addBlock(x,y,4,1,wall);
+    for(let z=-41;z<=4;z++)for(let y=8;y<12;y++)for(const x of [-31,31])this.addBlock(x,y,z,1,wall);
+    for(let x=-8;x<=8;x++){
+      const pier=Math.abs(x)>=6;
+      const top=pier?14:11;
+      for(let z=3;z<=5;z++)for(let y=gateClearance(x*2)/2;y<=top;y++){
+        const trim=y===top||(!pier&&y===gateClearance(x*2)/2);
+        const color=trim?0xc99e60:pier&&Math.abs(x)===7&&y>=6&&z===5?0x295d68:undefined;
+        this.addBlock(x,base+y,z,1,wall,color);
+      }
+    }
+    const tower=this.building('青緑の塔',westTower.x,westTower.z);
+    const towerBlock=(x,y,z,mat,color)=>this.addBlock(westTower.x/2+x,base+y,westTower.z/2+z,mat,tower,color);
+    for(let y=0;y<12;y++)for(let x=-2;x<=2;x++)for(let z=-2;z<=2;z++){
+      if(Math.abs(x)===2||Math.abs(z)===2||y===11)towerBlock(x,y,z,1,y===10?0xbb9358:undefined);
+    }
+    for(let y=0;y<5;y++){
+      const radius=Math.max(0,3-y);
+      for(let x=-radius;x<=radius;x++)for(let z=-radius;z<=radius;z++)towerBlock(x,12+y,z,2,y===4?0xd6a557:0x2a6875);
+    }
     for(let i=0;i<56;i++){
-      const x=(this.rng()-.5)*110,z=10+this.rng()*82;
+      const x=i<10?(i%2?1:-1)*(2+this.rng()*3):(this.rng()-.5)*110;
+      const z=i<10?19+i*7+this.rng()*3:10+this.rng()*82;
       this.humans.push({x,z,y:this.terrainHeight(x,z),homeX:x,homeZ:z,dx:0,dz:0,panic:0,phase:this.rng()*6.28,speed:2.8+this.rng()*1.8});
     }
     for(const [type,x,z] of [['catapult',-54,15],['catapult',54,15],['catapult',-14,90],['mage',-12,-12],['mage',12,-12],['mage',0,42]]){
@@ -111,7 +136,7 @@ export class World {
     }
     this.dirtyBuildings.clear();
   }
-  tick(dt,player){
+  tick(dt,player,flybyVelocity){
     this.tickTime+=dt;this.supportClock+=dt;
     for(const id of [...this.burning]){
       const v=this.blocks[id],m=MATERIALS[v.mat];v.burn+=dt;v.hp-=dt*3.5;
@@ -119,9 +144,18 @@ export class World {
       this.nearby(v.x,v.y,v.z,3.6,u=>{if(u.id===id||Math.hypot(v.x-u.x,v.y-u.y,v.z-u.z)>3.6)return;u.heat+=m.spread*dt;if(u.heat>MATERIALS[u.mat].ignition)this.ignite(u);});
     }
     if(this.supportClock>.6){this.supportClock=0;this.checkSupport();}
+    const flightSpeed=flybyVelocity?Math.hypot(flybyVelocity.x,flybyVelocity.z):0;
+    const headingX=flightSpeed?flybyVelocity.x/flightSpeed:0,headingZ=flightSpeed?flybyVelocity.z/flightSpeed:0;
     for(const h of this.humans){
       h.phase+=dt*9;
-      if(player&&Math.hypot(player.x-h.x,player.z-h.z)<22&&player.y-h.y<25){h.panic=Math.max(h.panic,1);const d=Math.hypot(h.x-player.x,h.z-player.z)||1;h.dx=(h.x-player.x)/d;h.dz=(h.z-player.z)/d;}
+      if(player&&flybyVelocity&&flightSpeed>8&&Math.abs(player.y-h.y)<18){
+        const rx=h.x-player.x,rz=h.z-player.z;
+        const ahead=rx*headingX+rz*headingZ,side=rz*headingX-rx*headingZ;
+        if(ahead>0&&ahead<Math.min(34,flightSpeed*.9)&&Math.abs(side)<8){
+          const sign=Math.sign(side)||1;
+          h.dx=-headingZ*sign;h.dz=headingX*sign;h.panic=Math.max(h.panic,1.3);
+        }
+      }else if(player&&!flybyVelocity&&Math.hypot(player.x-h.x,player.z-h.z)<22&&player.y-h.y<25){h.panic=Math.max(h.panic,1);const d=Math.hypot(h.x-player.x,h.z-player.z)||1;h.dx=(h.x-player.x)/d;h.dz=(h.z-player.z)/d;}
       h.panic=Math.max(0,h.panic-dt);const scale=h.panic>0?1:.12;
       const dx=h.panic>0?h.dx:Math.sin(h.phase*.12),dz=h.panic>0?h.dz:Math.cos(h.phase*.17);
       const nx=h.x+dx*h.speed*scale*dt,nz=h.z+dz*h.speed*scale*dt;

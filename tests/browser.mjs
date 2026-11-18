@@ -60,6 +60,27 @@ try{
  await page.keyboard.down('ArrowRight');await wait(()=>window.__aether.state.attitude.bank<-.4);await snapshot('flight-pose-right-bank');console.log('right bank',(await state()).attitude);await page.keyboard.up('ArrowRight');
  await page.keyboard.down('ShiftLeft');await wait(()=>window.__aether.state.attitude.pitch<-.65);console.log('accelerated forward lean',(await state()).attitude);await page.keyboard.up('ShiftLeft');await page.keyboard.up('KeyW');
  await wait(()=>{const s=window.__aether.state;return s.speed<.2&&Math.abs(s.attitude.pitch)<.03&&Math.abs(s.attitude.bank)<.03;});
- await page.goto('http://127.0.0.1:4173/?test=1&demo=1');await wait(()=>window.__aether?.state.demo);await page.waitForTimeout(400);s=await state();assert.equal(s.beamOn,false);assert.equal(s.stats.destroyed,0);await page.locator('#take-control').tap();assert.equal(await page.locator('#touch-controls').isVisible(),true);assert.equal((await state()).pitch,0);
+ // The gate counts a passage through the arch, including both faces.
+ await page.locator('#reset').tap();
+ await page.evaluate(()=>window.__aether.teleport(0,52,28));await page.keyboard.down('KeyW');
+ await wait(()=>window.__aether.state.position[2]<0);await page.keyboard.up('KeyW');assert.equal((await state()).courseStage,'gate');
+ await page.locator('#reset').tap();
+ p=await center('#flight-pad');f=await center('#forward-button');
+ await touch('touchStart',[{...f,id:2}]);
+ await wait(()=>window.__aether.state.position[2]<110);
+ await touch('touchStart',[{...f,id:2},{x:p.x,y:p.y+45,id:1}]);
+ await wait(()=>window.__aether.state.position[1]<33);
+ await touch('touchMove',[{...f,id:2},{...p,id:1}]);
+ await wait(()=>window.__aether.state.position[2]<49);
+ await snapshot('castle-gate-approach');
+ await wait(()=>window.__aether.state.courseStage==='tower');
+ await touch('touchMove',[{...f,id:2},{x:p.x-32,y:p.y-32,id:1}]);
+ await wait(()=>window.__aether.state.courseStage==='clear');
+ await touch('touchEnd',[]);await snapshot('castle-tower-exit');
+ assert.equal((await state()).stats.destroyed,0);console.log('course completed manually with two thumbs');
+ await page.locator('#reset').tap();assert.equal((await state()).courseStage,'gate');
+ await page.goto('http://127.0.0.1:4173/?test=1&demo=1');await wait(()=>window.__aether?.state.demo);
+ await page.waitForFunction(()=>window.__aether.state.courseStage==='clear',null,{timeout:60000});
+ s=await state();assert.equal(s.beamOn,false);assert.equal(s.stats.destroyed,0);await page.locator('#take-control').tap();assert.equal(await page.locator('#touch-controls').isVisible(),true);assert.equal((await state()).pitch,0);
  assert.deepEqual(errors,[]);console.log('PASS: diagonal multitouch, independent flight, left/right bank, climb/descent pitch, speed lean, neutral recovery, cancellation, pause, no combat, landscape and demo');
 }finally{await browser.close();}
