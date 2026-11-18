@@ -69,15 +69,34 @@ try{
  assert.ok(await page.evaluate(()=>!window.__aether.world.solidAt(32,22,8)));
  await page.evaluate(()=>window.__aether.teleport(22,25,90));await page.locator('#dash-button').tap();
  await wait(()=>window.__aether.state.attack==='flight');assert.ok((await state()).position[2]<48);assert.ok((await state()).stats.destroyed>0);
- const counts=[];
- for(const height of [30,150]){
-   await page.locator('#reset').tap();await page.evaluate(y=>window.__aether.teleport(0,y,95),height);
-   await page.locator('#rain-button').tap();await page.keyboard.down('Space');
-   await wait(()=>window.__aether.state.position[2]<51);await page.keyboard.up('Space');
-   await page.keyboard.press('Digit3');counts.push(await page.evaluate(()=>window.__aether.state.drops+window.__aether.world.shots));
-   await wait(()=>window.__aether.state.drops===0);assert.ok(await page.evaluate(()=>window.__aether.world.shots>0));
+ for(const [height,expected] of [[28,5],[170,1]]){
+   await page.locator('#reset').tap();
+   await page.evaluate(y=>window.__aether.teleport(0,y,95),height);
+   assert.equal((await state()).storm.visible,false);
+   await page.locator('#rain-button').tap();
+   await page.waitForFunction(()=>window.__aether.state.storm.pass>=6,null,{timeout:45000});
+   const storm=(await state()).storm;
+   assert.equal(storm.count,expected);assert.ok(storm.visible);
+   const hit=storm.last;
+   assert.ok(Math.abs(hit.x-hit.cx-hit.side*3.2*Math.cos(hit.yaw))<.001);
+   assert.ok(Math.abs(hit.z-hit.cz+hit.side*3.2*Math.sin(hit.yaw))<.001);
+   assert.ok(hit.hit<hit.y);
+   await page.keyboard.press('Digit3');
+   await wait(()=>window.__aether.state.storm.rift===1&&!window.__aether.state.storm.visible);
+   assert.equal((await state()).storm.count,expected);
  }
- assert.ok(counts[0]>counts[1]);console.log('laser, ram return / penetration and altitude-dependent drops passed',counts);
+ await page.locator('#reset').tap();
+ const roof=await page.evaluate(()=>{
+   const world=window.__aether.world;
+   const tower=world.blocks.filter(b=>b.x===12&&b.z===8&&b.alive).sort((a,b)=>b.y-a.y)[0];
+   window.__aether.teleport(tower.x+3.2,tower.y+16,tower.z);
+   return {x:tower.x,y:tower.y+1,z:tower.z};
+ });
+ await page.keyboard.press('Digit3');
+ await wait(()=>window.__aether.state.storm.count>=1);
+ const roofHit=(await state()).storm.last;
+ assert.ok(Math.hypot(roofHit.x-roof.x,roofHit.hit-roof.y,roofHit.z-roof.z)<.01);
+ console.log('laser, ram, summon, lateral roof strikes and altitude cadence passed');
  await page.locator('#reset').tap();
  // Two real touch pointers: right thumb throttle plus left thumb diagonal pad.
  p=await center('#flight-pad');f=await center('#forward-button');

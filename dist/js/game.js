@@ -1,7 +1,8 @@
 import * as THREE from '../vendor/three.module.js';
 import { DoubleTap, FlightManeuver } from './maneuvers.js?v=0.8.2';
+import { StormCompanion } from './companion.js';
 import { Heroine } from './heroine.js?v=0.8.0';
-import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
+import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.9.0';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -67,6 +68,8 @@ function init(){
   const glowGeo=new THREE.SphereGeometry(1,12,8);impactGlow=mesh(glowGeo,new THREE.MeshBasicMaterial({color:0xffdc91,transparent:true,opacity:.55,depthWrite:false,blending:THREE.AdditiveBlending}));
   beam.visible=beamCore.visible=impactGlow.visible=false;
   avatar=createAvatar();scene.add(avatar);
+  companion=new StormCompanion(new THREE.TextureLoader().load(new URL('../assets/companion-orbit-8dir48.png',import.meta.url).href,undefined,undefined,()=>fatal('相棒の画像を読み込めませんでした。')));
+  scene.add(companion);
   createDashWings();
   createWind();rebuildWorld(false);resize();
   camera.position.copy(playerPos).add(new THREE.Vector3(17,15,29));camera.lookAt(0,24,-20);
@@ -338,7 +341,7 @@ function emit(x,y,z,color,amount=1,force=7,kind='debris'){
     const f=force*(.3+rng());particleData.push({x,y,z,vx:(rng()-.5)*f,vy:kind==='fire'?4+rng()*5:rng()*f,vz:(rng()-.5)*f,life:kind==='fire'?.6+rng()*.6:1.2+rng()*1.2,max:2,size:kind==='fire'?.35+rng()*.65:.2+rng()*.6,color,kind,rotation:rng()*6});
   }
 }
-function impactRing(x,y,z,r){const m=mesh(new THREE.RingGeometry(.8,1,32),new THREE.MeshBasicMaterial({color:demon?0xd19deb:0xffe7a9,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(x,Math.max(y+.2,world.terrainHeight(x,z)+.15),z);effects.push({mesh:m,life:.55,max:.55,r});}
+function impactRing(x,y,z,r,color=demon?0xd19deb:0xffe7a9){const m=mesh(new THREE.RingGeometry(.8,1,32),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(x,Math.max(y+.2,world.terrainHeight(x,z)+.15),z);effects.push({mesh:m,life:.55,max:.55,r});}
 function playImpact(){if(!audioCtx||!audioOn)return;const osc=audioCtx.createOscillator(),g=audioCtx.createGain();osc.type='sine';osc.frequency.setValueAtTime(120,audioCtx.currentTime);osc.frequency.exponentialRampToValueAtTime(35,audioCtx.currentTime+.18);g.gain.setValueAtTime(.09,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.23);osc.connect(g).connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+.25);}
 function shoot(e){
   const mage=e.kind==='mage',mat=new THREE.MeshBasicMaterial({color:mage?0xd4a0f5:0x827766});
@@ -356,7 +359,9 @@ function processEvents(){
       const landing=e.reason==='landing',kind=landing?['splinter','dust','tile'][e.mat]:'debris';
       emit(e.x,e.y,e.z,kind==='dust'?0xbeaf94:e.color,landing?4:1,landing?7:10,kind);
     }
-    if(e.type==='impact'){emit(e.x,e.y,e.z,demon?0xd3a5ed:0xffdea1,9,14,'spark');impactRing(e.x,e.y,e.z,e.r);playImpact();}
+    if(e.type==='impact'&&e.effect==='lightning'){
+      emit(e.x,e.y+.12,e.z,0x9aeaff,14,10,'spark');impactRing(e.x,e.y,e.z,e.r*.7,0x63dcff);playImpact();
+    }else if(e.type==='impact'){emit(e.x,e.y,e.z,demon?0xd3a5ed:0xffdea1,9,14,'spark');impactRing(e.x,e.y,e.z,e.r);playImpact();}
     if(e.type==='shot'&&!FLIGHT_DEBUG)shoot(e);
   }
 }
@@ -455,9 +460,7 @@ const laserStartOffset=new THREE.Vector3(),laserOffset=new THREE.Vector3(),beamO
 const inverseCameraRotation=new THREE.Quaternion();
 const laserAngles=new THREE.Euler(0,0,0,'YXZ');
 const dashStart=new THREE.Vector3(),dashEnd=new THREE.Vector3(),dashDir=new THREE.Vector3();
-let rain=false,dropProgress=0;
-const drops=[],dropGeometry=new THREE.IcosahedronGeometry(.48,0);
-const dropMaterial=new THREE.MeshBasicMaterial({color:0xffe9a3});
+let companion;
 
 const wingReach=12;
 const dashWings=new THREE.Group(),dashHits=new Set();
@@ -549,10 +552,8 @@ function setAttack(mode){
 function resetAttacks(){
   chaseVelocity.set(0,0,0);
   maneuver=null;
-  setAttack('flight');rain=false;dropProgress=0;$('#rain-button').setAttribute('aria-pressed','false');
-  $('#rain-button').textContent='光粒 OFF';
-  for(const drop of drops)scene.remove(drop.mesh);
-  drops.length=0;
+  setAttack('flight');companion.reset();$('#rain-button').setAttribute('aria-pressed','false');
+  $('#rain-button').textContent='落雷 OFF';
 }
 function captureLaserCamera(){
   laserStartRotation.copy(camera.quaternion);
@@ -575,8 +576,8 @@ function forwardPressed(){
 function useAttack(action){
   if(!active||paused||demo||lab)return;
   if(action==='rain'){
-    rain=!rain;dropProgress=0;$('#rain-button').setAttribute('aria-pressed',rain);
-    $('#rain-button').textContent=rain?'光粒 ON':'光粒 OFF';return;
+    const on=companion.toggle();$('#rain-button').setAttribute('aria-pressed',on);
+    $('#rain-button').textContent=on?'落雷 ON':'落雷 OFF';return;
   }
   if(maneuver||attack==='dash'||attack==='return')return;
   if(action==='laser'){
@@ -636,30 +637,6 @@ function updateDash(dt){
   avatar.position.copy(playerPos);speed=attack==='dash'?95:0;
   updateChaseCamera(dt,17,5.6,7);
 }
-function updateDrops(dt,distance){
-  if(rain&&distance>0){
-    const altitude=Math.max(0,playerPos.y-world.terrainHeight(playerPos.x,playerPos.z));
-    const increment=distance/(6+altitude*.24);
-    const total=dropProgress+increment;
-    for(let crossing=1;crossing<=Math.floor(total);crossing++){
-      const light=mesh(dropGeometry,dropMaterial);
-      light.position.lerpVectors(lastPosition,playerPos,(crossing-dropProgress)/increment);
-      light.position.y-=.9;light.scale.set(.85,1.65,.85);drops.push({mesh:light,vy:-2});
-    }
-    dropProgress=total%1;
-  }
-  for(let i=drops.length-1;i>=0;i--){
-    const drop=drops[i],p=drop.mesh.position;drop.vy-=24*dt;
-    const dy=drop.vy*dt,steps=Math.ceil(Math.abs(dy)/.55);
-    for(let j=0;j<steps;j++){
-      p.y+=dy/steps;
-      if(p.y<=world.terrainHeight(p.x,p.z)||world.solidAt(p.x,p.y,p.z)){
-        world.impact(p.x,p.y,p.z,6,90);scene.remove(drop.mesh);drops.splice(i,1);break;
-      }
-    }
-  }
-}
-
 function turnInput(){
   return clamp((keys.has('KeyA')||keys.has('ArrowLeft')?1:0)-(keys.has('KeyD')||keys.has('ArrowRight')?1:0)-padInput.x,-1,1);
 }
@@ -823,9 +800,9 @@ function loop(now){
   requestAnimationFrame(loop);const rawDt=lastHudTime?(now-lastHudTime)/1000:.016,dt=Math.min(.08,rawDt);lastHudTime=now;frameCount++;fps=lerp(fps,1/Math.max(rawDt,.001),.08);
   if(!paused){
     elapsed+=dt;hitClock=Math.max(0,hitClock-dt);if(active){lastPosition.copy(playerPos);if(demo)updateDemo(dt);else{
-      const returning=attack==='return';previousCameraPosition.copy(camera.position);updateFlight(dt);
+      const previousYaw=yaw;previousCameraPosition.copy(camera.position);updateFlight(dt);
       chaseVelocity.subVectors(camera.position,previousCameraPosition).divideScalar(dt).clampLength(0,100);
-      updateDrops(dt,returning?0:Math.hypot(playerPos.x-lastPosition.x,playerPos.z-lastPosition.z));
+      companion.update(dt,lastPosition,playerPos,previousYaw,yaw,camera,world);
     }if(FLIGHT_DEBUG)updateCourse(lastPosition,playerPos);}else if(!lab)updateAttract(dt);
     if(!lab){
       heroine.update(dt,camera,avatarPose,attack,attackTime,chargeDuration,returnDuration,active?Math.hypot(velocity.x,velocity.z):3,
@@ -849,6 +826,7 @@ function loop(now){
     if(toastClock>0){toastClock-=dt;if(toastClock<=0)$('#toast').classList.remove('visible');}
   }
   renderer.render(scene,camera);
+  if(active&&!demo&&!lab)companion.rift.draw(renderer,camera);
 }
 
 function begin(asDemo=false){chaseVelocity.set(0,0,0);loopRecovery=null;maneuver=null;releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
@@ -940,5 +918,5 @@ pad.addEventListener('pointermove',e=>{
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;if(event==='pointerup')sampleFlightTap(e.timeStamp);else verticalTaps.reset();pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('collapse'))setupLab(true);else if(q.has('demo'))begin(true);
-  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,maneuver:maneuver?.kind??null,maneuverProgress:maneuver?.progress??0,cameraPosition:camera.position.toArray(),cameraRotation:camera.quaternion.toArray(),screenY:(1-playerPos.clone().project(camera).y)/2,hero:{motion:heroine.motion,frame:heroine.frame,screenX:(playerPos.clone().project(camera).x+1)/2,beamOrigin:beamOrigin.toArray()},rain,drops:drops.length,aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
+  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,maneuver:maneuver?.kind??null,maneuverProgress:maneuver?.progress??0,cameraPosition:camera.position.toArray(),cameraRotation:camera.quaternion.toArray(),screenY:(1-playerPos.clone().project(camera).y)/2,hero:{motion:heroine.motion,frame:heroine.frame,screenX:(playerPos.clone().project(camera).x+1)/2,beamOrigin:beamOrigin.toArray()},storm:{enabled:companion.enabled,visible:companion.visible&&companion.body.visible,phase:companion.phase,pass:companion.pass,count:companion.count,last:companion.lastStrike,flash:companion.bolt.visible,rift:companion.rift.time,position:companion.socket.toArray()},aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}
