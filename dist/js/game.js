@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { World, MATERIALS, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.3';
+import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.4';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -148,10 +148,44 @@ function buildTerrain(){
   if(terrain){terrain.geometry.dispose();terrain.geometry=g;}else terrain=mesh(g,material(0xffffff,{vertexColors:true}));
   world.terrainDirty=false;
 }
-// Columns extend the same fracture. Rows vary its path between adjacent stones.
-function createCrackAtlas(){
+function patchFace(ctx,color,points){
+  ctx.fillStyle=color;ctx.beginPath();ctx.moveTo(...points[0]);
+  for(const point of points.slice(1))ctx.lineTo(...point);
+  ctx.closePath();ctx.fill();
+}
+function drawWoodSplit(ctx,stage){
+  // Long tapered splinters follow the grain; narrow bands expose the torn lip.
+  const end=[0,60,100,134][stage],gap=[0,3,7,12][stage];
+  patchFace(ctx,'#794e36',[[-3,54],[30,56],[48,52],[end,55],[46,56+gap],[29,58+gap],[-3,60+gap]]);
+  patchFace(ctx,'#251e17',[[-3,56],[33,58],[48,54],[end,55],[47,55+gap*.55],[31,59+gap*.55],[-3,59+gap*.55]]);
+  if(stage>=2){
+    patchFace(ctx,'#966e43',[[15,73],[51,69],[42,73],[stage===3?118:88,67],[46,79]]);
+    patchFace(ctx,'#36291e',[[15,75],[54,71],[43,75],[stage===3?112:80,70],[47,78]]);
+  }
+  if(stage===3){
+    patchFace(ctx,'#67472e',[[48,50],[69,45],[61,45],[126,34],[75,47],[84,47]]);
+    patchFace(ctx,'#3b2b1f',[[5,85],[44,81],[35,84],[73,80],[39,87]]);
+  }
+}
+function drawTileChips(ctx,stage){
+  // Angular chips grow inward from the rim, leaving flat facets below the glaze.
+  const chip=(x,y,size,flip)=>{
+    ctx.save();ctx.translate(x,y);ctx.scale(size*flip,size);
+    patchFace(ctx,'#392924',[[0,0],[44,0],[36,10],[29,11],[18,26],[8,21],[0,33]]);
+    patchFace(ctx,'#bb9278',[[0,0],[38,0],[28,9],[17,21],[8,15],[0,25]]);
+    patchFace(ctx,'#846654',[[0,0],[21,0],[17,9],[8,15],[0,11]]);
+    ctx.restore();
+  };
+  chip(0,0,[0,.64,1.06,1.52][stage],1);
+  if(stage>=2)chip(128,0,stage===2?.48:.89,-1);
+  if(stage===3){
+    ctx.save();ctx.translate(128,128);ctx.rotate(Math.PI);chip(0,0,.95,1);ctx.restore();
+    patchFace(ctx,'#725446',[[27,31],[35,23],[50,20],[61,14],[52,23],[38,26]]);
+  }
+}
+function createDamageAtlas(){
   const tile=128,canvas=document.createElement('canvas');
-  canvas.width=canvas.height=4*tile;
+  canvas.width=4*tile;canvas.height=12*tile;
   const ctx=canvas.getContext('2d');
   ctx.fillStyle='white';ctx.fillRect(0,0,canvas.width,canvas.height);
   for(let row=0;row<4;row++){
@@ -162,7 +196,17 @@ function createCrackAtlas(){
     const lower=[main[5],point(39,88),point(29,104),point(-4,109)];
     const twig=[fork[2],point(92,64),point(109,71)];
     for(let stage=1;stage<=3;stage++){
-      ctx.save();ctx.translate(stage*tile,row*tile);
+      for(const mat of [0,2]){
+        ctx.save();ctx.translate(stage*tile,((2-mat)*4+row)*tile);
+        ctx.beginPath();ctx.rect(0,0,tile,tile);ctx.clip();
+        ctx.translate(tile/2,tile/2);
+        if(mat===2)ctx.rotate(row*Math.PI/2);
+        else{ctx.scale(row%2?-1:1,1);ctx.translate(0,(row-1.5)*7);}
+        ctx.translate(-tile/2,-tile/2);
+        if(mat===0)drawWoodSplit(ctx,stage);else drawTileChips(ctx,stage);
+        ctx.restore();
+      }
+      ctx.save();ctx.translate(stage*tile,(row+4)*tile);
       ctx.beginPath();ctx.rect(0,0,tile,tile);ctx.clip();
       ctx.translate(tile/2,tile/2);ctx.rotate(row*Math.PI/2);ctx.translate(-tile/2,-tile/2);
       function fissure(points,width){
@@ -180,21 +224,19 @@ function createCrackAtlas(){
   }
   const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
 }
-const crackAtlas=createCrackAtlas();
-function stoneTile(block){
-  if(block.mat!==1||block.hp>=MATERIALS[1].hp||!block.alive)return 0;
-  const remaining=block.hp/MATERIALS[1].hp;
-  const stage=remaining>.65?1:remaining>.30?2:3;
-  return (block.id%4)*4+stage;
+const damageAtlas=createDamageAtlas();
+function damageTile(block){
+  const stage=damageStage(block);
+  return stage?(block.mat*4+block.id%4)*4+stage:0;
 }
 function buildBlocks(){
   const geometry=new THREE.BoxGeometry(1.94,1.94,1.94);
-  const tiles=new THREE.InstancedBufferAttribute(Float32Array.from(world.blocks,stoneTile),1);
+  const tiles=new THREE.InstancedBufferAttribute(Float32Array.from(world.blocks,damageTile),1);
   geometry.setAttribute('crackTile',tiles.setUsage(THREE.DynamicDrawUsage));
-  const surface=material(0xffffff,{map:crackAtlas});
+  const surface=material(0xffffff,{map:damageAtlas});
   surface.onBeforeCompile=shader=>{
     shader.vertexShader='attribute float crackTile;\n'+shader.vertexShader.replace('#include <uv_vertex>',`#include <uv_vertex>
-      vMapUv=(vec2(mod(crackTile,4.0),floor(crackTile/4.0))+mix(vec2(.02),vec2(.98),vMapUv))*.25;`);
+      vMapUv=(vec2(mod(crackTile,4.0),floor(crackTile/4.0))+mix(vec2(.02),vec2(.98),vMapUv))/vec2(4.0,12.0);`);
   };
   blockMesh=new THREE.InstancedMesh(geometry,surface,world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
   const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(b.color??MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
@@ -202,7 +244,7 @@ function buildBlocks(){
 }
 function updateBlocks(){
   const tiles=blockMesh.geometry.attributes.crackTile;
-  for(const id of world.changed){const b=world.blocks[id],tile=stoneTile(b);
+  for(const id of world.changed){const b=world.blocks[id],tile=damageTile(b);
     if(tiles.getX(id)!==tile){tiles.setX(id,tile);tiles.needsUpdate=true;}
     if(!b.alive){temp.position.set(b.x,-1000,b.z);temp.scale.setScalar(0);temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);}else{
     temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(1);temp.rotation.set(0,0,0);

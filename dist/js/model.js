@@ -14,6 +14,11 @@ export const MATERIALS = [
   {name:'石材', color:0xc1b69d, breakDrop:12, hp:100, ignition:Infinity, fuel:0, spread:0},
   {name:'屋根材', color:0x98564b, breakDrop:2, hp:48, ignition:33, fuel:9, spread:6},
 ];
+export function damageStage(v){
+  const fraction=v.hp/MATERIALS[v.mat].hp;
+  if(!v.alive||fraction>=1)return 0;
+  return fraction>.65?1:fraction>.30?2:3;
+}
 export function random(seed=7419) {return ()=> {seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const key=(x,y,z)=>`${x},${y},${z}`;
@@ -169,11 +174,12 @@ export class World {
       for(const id of this.spatial.get(key(a,b,c))||[]){const v=this.blocks[id];if(v.alive)fn(v);}
     }
   }
-  damage(v,amount){
+  damage(v,amount,reason='impact'){
     if(!v.alive)return;
+    const previous=damageStage(v);
     v.hp-=amount;
-    if(v.hp<=0)this.remove(v);
-    else if(v.mat===1)this.changed.add(v.id);
+    if(v.hp<=0)this.remove(v,reason);
+    else if(previous!==damageStage(v))this.changed.add(v.id);
   }
   remove(v,reason='impact'){
     if(!v.alive)return;v.alive=false;this.collapse.damaged(v);this.unindexBlock(v);
@@ -207,8 +213,10 @@ export class World {
   tick(dt,player,flybyVelocity){
     this.tickTime+=dt;this.supportClock+=dt;
     for(const id of [...this.burning]){
-      const v=this.blocks[id],m=MATERIALS[v.mat];v.burn+=dt;v.hp-=dt*3.5;
-      if(v.burn>=m.fuel||v.hp<=0){this.remove(v,'fire');continue;}
+      const v=this.blocks[id],m=MATERIALS[v.mat];v.burn+=dt;
+      this.damage(v,dt*3.5,'fire');
+      if(!v.alive)continue;
+      if(v.burn>=m.fuel){this.remove(v,'fire');continue;}
       this.nearby(v.x,v.y,v.z,3.6,u=>{if(u.id===id||Math.hypot(v.x-u.x,v.y-u.y,v.z-u.z)>3.6)return;u.heat+=m.spread*dt;if(u.heat>MATERIALS[u.mat].ignition)this.ignite(u);});
     }
     if(this.supportClock>.6){this.supportClock=0;this.checkSupport();}
