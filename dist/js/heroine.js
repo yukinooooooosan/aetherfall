@@ -5,32 +5,55 @@ const rows=['hover','forward','left','right','ram','recoil','laser'];
 // Socket coordinates in the 96px drawings, measured from the top left.
 const palm=[[66,21],[70,22],[72,21],[73,22]];
 const back={
-  hover:[[49,27],[49,26],[49,24],[49,23],[49,23],[49,24],[49,27],[49,27]],
-  forward:[48,25], left:[[47,26],[46,26],[44,28],[41,30],[38,32],[37,33],[36,33],[35,33]],
-  ram:[[48,26],[46,32],[47,37],[46,41],[46,42],[47,43],[47,43],[47,43]], laser:[47,26]
+  hover:[[48,29],[48,28],[48,26],[48,25],[48,25],[48,26],[48,29],[48,29]],
+  forward:[[48,26],[48,26],[48,26],[48,27],[48,27],[48,27],[48,26],[48,26]],
+  left:[[49,28],[48,28],[45,30],[41,32],[38,34],[36,35],[36,35],[36,35]],
+  right:[[47,28],[48,28],[52,30],[56,32],[59,34],[61,35],[61,35],[61,35]],
+  ram:[[48,28],[47,33],[47,38],[47,42],[47,44],[47,45],[47,45],[47,45]],
+  recoil:[[49,30],[49,32],[49,41],[47,48],[49,49],[52,42],[50,31],[48,28]],
+  laser:[[48,28],[48,28],[48,28],[48,28],[47,27],[47,27],[47,27],[47,27]]
 };
 
-function lightWing(side,material){
-  const vertices=[],colors=[];
-  // Three separated strokes, curved upward and tapered to bright points.
-  for(let feather=0;feather<3;feather++){
-    function edge(t,upper){
-      const span=1.60-feather*.25;
-      const y=(.68-feather*.38)*t+.15*Math.sin(Math.PI*2*t);
-      const width=.12*Math.sin(Math.PI*t);
-      vertices.push(side*t*span,y+(upper?width:-width),-.12);
-      const light=upper?1:.61;
-      colors.push(light,light*(.88+.12*t),light*(.68+.32*t));
+const sections=10,feathers=3;
+class LightWing extends THREE.Mesh{
+  constructor(side,material){
+    const geometry=new THREE.BufferGeometry();
+    super(geometry,material);
+    this.side=side;
+    const positions=new THREE.Float32BufferAttribute(new Float32Array(feathers*(sections+1)*6),3);
+    geometry.setAttribute('position',positions.setUsage(THREE.DynamicDrawUsage));
+    const colors=[],indices=[];
+    for(let feather=0;feather<feathers;feather++){
+      for(let i=0;i<=sections;i++){
+        const t=i/sections;
+        colors.push(1,.92+.08*t,.8+.2*t, .65,.50+.20*t,.34+.26*t);
+        const n=(feather*(sections+1)+i)*2;
+        if(i<sections)indices.push(n,n+1,n+2,n+2,n+1,n+3);
+      }
     }
-    for(let i=0;i<8;i++){
-      const a=i/8,b=(i+1)/8;
-      edge(a,true);edge(a,false);edge(b,true);edge(b,true);edge(a,false);edge(b,false);
-    }
+    geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    geometry.setIndex(indices);
+    geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),2.5);
+    this.position.set(side*4*pixel,0,-.065);
   }
-  const geo=new THREE.BufferGeometry();
-  geo.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));
-  geo.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-  return new THREE.Mesh(geo,material);
+  animate(phase,strength,sweep){
+    const positions=this.geometry.attributes.position;
+    let index=0;
+    for(let feather=0;feather<feathers;feather++){
+      for(let i=0;i<=sections;i++){
+        const t=i/sections;
+        // The shoulder leads each stroke. The separate plumes follow with increasing lag.
+        const wave=Math.sin(phase-t*1.45-feather*.31);
+        const span=(1.48-feather*.21)*(1-.20*sweep);
+        const x=this.side*t*span*(1-.055*wave*strength);
+        const y=t*(.68-feather*.37-.54*sweep)+.15*Math.sin(2*Math.PI*t)+strength*t*(.17+.25*t)*wave;
+        const width=.11*Math.sin(Math.PI*t)*(1+.09*wave);
+        positions.setXYZ(index++,x,y+width,0);
+        positions.setXYZ(index++,x,y-width,0);
+      }
+    }
+    positions.needsUpdate=true;
+  }
 }
 
 export class Heroine extends THREE.Group{
@@ -42,19 +65,20 @@ export class Heroine extends THREE.Group{
     texture.repeat.set(1/8,1/rows.length);
     this.texture=texture;
     this.body=new THREE.Mesh(new THREE.PlaneGeometry(size,size),new THREE.MeshBasicMaterial({
-      map:texture,alphaTest:.5,side:THREE.DoubleSide,toneMapped:false
+      map:texture,alphaTest:.5,transparent:true,depthWrite:true,toneMapped:false
     }));
+    this.body.renderOrder=-1; // Composite the cutout after the dash wings, before other translucent effects.
     this.add(this.body);
     this.wingMaterial=new THREE.MeshBasicMaterial({color:0xffdf9a,side:THREE.DoubleSide,
       vertexColors:true,transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
     this.wings=new THREE.Group();
-    this.left=lightWing(-1,this.wingMaterial);this.right=lightWing(1,this.wingMaterial);
+    this.left=new LightWing(-1,this.wingMaterial);this.right=new LightWing(1,this.wingMaterial);
     this.wings.add(this.left,this.right);this.body.add(this.wings);
     this.socket=new THREE.Vector3();
     this.reset();
   }
   reset(){
-    this.motion='hover';this.frame=0;this.time=0;this.selectFrame('hover',0);
+    this.motion='hover';this.frame=0;this.time=0;this.phase=0;this.sweep=0;this.body.position.y=0;this.selectFrame('hover',0);
   }
   setDark(dark){
     this.body.material.color.setHex(dark?0xc4a0db:0xffffff);
@@ -87,18 +111,26 @@ export class Heroine extends THREE.Group{
     // travel pitch so that independent ascent/descent still changes the attitude.
     this.body.rotation.x=attack==='flight'?pose.rotation.x*.4:0;
     const turning=motion==='left'||motion==='right';
-    const sockets=back[motion==='right'?'left':motion];
-    this.wings.visible=motion!=='ram'&&motion!=='recoil';
-    if(sockets){
-      const socket=Array.isArray(sockets[0])?sockets[frame]:sockets;
-      this.socket.set((socket[0]-48)*pixel*(motion==='right'?-1:1),(48-socket[1])*pixel,0);
-      this.wings.position.copy(this.socket);
-    }
+    const [x,y]=back[motion][frame];
+    this.socket.set((x-48)*pixel,(48-y)*pixel,0);
+    this.wings.position.copy(this.socket);
+    this.wings.visible=motion!=='ram';
+    const speedFraction=Math.min(1,horizontalSpeed/32);
+    const targetSweep=motion==='recoil'?.95:motion==='laser'?.1:speedFraction;
+    this.sweep+=(targetSweep-this.sweep)*(1-Math.exp(-dt*8));
+    this.phase+=dt*(3.9+1.6*this.sweep+(attack==='charge'?1.8:0));
+    const hoverLift=motion==='hover'?.045*Math.sin(this.phase):0;
+    this.body.position.y+=(hoverLift-this.body.position.y)*(1-Math.exp(-dt*8));
     if(this.wings.visible){
-      this.wings.rotation.z=turning?Math.sign(bank)*Math.min(1,frame/4)*.44:0;
-      const pulse=Math.sin(this.time*3.8)*.07;
-      this.left.rotation.z=-pulse;this.right.rotation.z=pulse;
-      this.wingMaterial.opacity=attack==='charge'?.76+.21*(actionTime/chargeDuration):.86;
+      const roll=motion==='recoil'?-2*Math.PI*actionTime/returnDuration:turning?Math.sign(bank)*Math.min(1,frame/4)*.44:0;
+      this.wings.rotation.z=roll;
+      const tuck=motion==='recoil'?1-.56*Math.sin(Math.PI*actionTime/returnDuration):1;
+      this.wings.scale.set(tuck,tuck,1);
+      const strength=attack==='charge'?.65+.45*actionTime/chargeDuration:motion==='laser'?.44:.95-.35*this.sweep;
+      const bias=turning?bank*.24:0;
+      this.left.animate(this.phase,strength-bias,this.sweep);
+      this.right.animate(this.phase,strength+bias,this.sweep);
+      this.wingMaterial.opacity=.86+.055*Math.sin(this.phase-.6);
     }
   }
   handPosition(target){

@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { Heroine } from './heroine.js?v=0.7.0';
+import { Heroine } from './heroine.js?v=0.7.2';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
@@ -411,10 +411,11 @@ const wingTrail=u=>.2+2.6*u*u;
 const wingChord=u=>2.5*(1-u);
 
 function createDashWings(){
-  const positions=[],colors=[];
+  const positions=[],colors=[],trailingEdges=[];
   function vertex(side,u,trailing,glow){
     positions.push(side*u*wingReach,wingHeight(u)-trailing*.19,wingTrail(u)+trailing);
     colors.push(glow,glow,glow);
+    if(trailing>0)trailingEdges.push({index:colors.length/3-1,u,trailing});
   }
   for(const side of [-1,1])for(let i=0;i<10;i++){
     const a=i/10,b=(i+1)/10;
@@ -426,9 +427,15 @@ function createDashWings(){
   const geometry=new THREE.BufferGeometry();
   geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
   geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+  geometry.attributes.position.setUsage(THREE.DynamicDrawUsage);
+  geometry.computeBoundingSphere();
+  geometry.boundingSphere.radius+=.5;
+  dashWings.userData.trailingEdges=trailingEdges;
   const light=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:.88,depthWrite:false,toneMapped:false});
-  mesh(geometry,light,dashWings);
+  const plumage=mesh(geometry,light,dashWings);
+  plumage.renderOrder=-2;
   const aura=mesh(geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide,transparent:true,opacity:.24,depthWrite:false,blending:THREE.AdditiveBlending}),dashWings);
+  aura.renderOrder=-3;
   aura.scale.set(1.045,1.12,1.16);
   dashWings.visible=false;scene.add(dashWings);
 }
@@ -699,6 +706,13 @@ function loop(now){
     if(!lab){
       heroine.update(dt,camera,avatarPose,attack,attackTime,chargeDuration,returnDuration,active?Math.hypot(velocity.x,velocity.z):3);
       if(attack==='dash'){
+        // Flutter the feather tips while the damaging leading edge holds its trajectory.
+        const positions=dashWings.children[0].geometry.attributes.position;
+        for(const {index,u,trailing} of dashWings.userData.trailingEdges){
+          const ripple=.13*Math.sin(attackTime*20-u*5);
+          positions.setY(index,wingHeight(u)+trailing*(ripple-.19));
+        }
+        positions.needsUpdate=true;
         heroine.backPosition(dashWings.position);
         dashWings.position.addScaledVector(wingUp,-wingHeight(0)*dashWings.scale.y);
       }
