@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { Heroine } from './heroine.js?v=0.7.4';
+import { Heroine } from './heroine.js?v=0.7.5';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
@@ -299,8 +299,9 @@ function buildTrees(){
 function createAvatar(){
   const root=new THREE.Group();
   avatarPose=new THREE.Group();root.add(avatarPose);
-  const atlas=new THREE.TextureLoader().load(new URL('../assets/heroine-flight-v1.png',import.meta.url).href,undefined,undefined,()=>fatal('主人公の画像を読み込めませんでした。'));
-  heroine=new Heroine(atlas);root.add(heroine);
+  const atlas=new THREE.TextureLoader().load(new URL('../assets/heroine-flight-v1.png?v=0.7.5',import.meta.url).href,undefined,undefined,()=>fatal('主人公の画像を読み込めませんでした。'));
+  const castingTexture=new THREE.TextureLoader().load(new URL('../assets/casting-wings.png',import.meta.url).href,undefined,undefined,()=>fatal('光翼の画像を読み込めませんでした。'));
+  heroine=new Heroine(atlas,castingTexture);root.add(heroine);
   return root;
 }
 function updateAvatarPose(dt,horizontalSpeed,verticalSpeed,turn){

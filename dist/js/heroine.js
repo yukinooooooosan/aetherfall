@@ -3,7 +3,7 @@ import * as THREE from '../vendor/three.module.js';
 const size=2.65, pixel=size/96;
 const rows=['hover','forward','left','right','ram','recoil','laser'];
 // Socket coordinates in the 96px drawings, measured from the top left.
-const palm=[[66,21],[70,22],[72,21],[73,22]];
+const palm=[74,24];
 const back={
   hover:[[48,29],[48,28],[48,26],[48,25],[48,25],[48,26],[48,29],[48,29]],
   forward:[[48,26],[48,26],[48,26],[48,27],[48,27],[48,27],[48,26],[48,26]],
@@ -62,8 +62,41 @@ class LightWing extends THREE.Mesh{
   }
 }
 
+// Each generated wing occupies half the texture. A segmented strip lets the
+// shoulder stay planted while the gust travels out to the tip.
+class CastingWing extends THREE.Mesh{
+  constructor(texture,near){
+    const geometry=new THREE.PlaneGeometry(1,1,sections,1);
+    super(geometry,new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false,
+      side:THREE.DoubleSide,toneMapped:false}));
+    this.near=near;
+    this.renderOrder=near?-2:-3;
+    const uv=geometry.attributes.uv;
+    for(let i=0;i<uv.count;i++)uv.setY(i,(uv.getY(i)+(near?1:0))*.5);
+    geometry.attributes.position.setUsage(THREE.DynamicDrawUsage);
+    geometry.boundingSphere=new THREE.Sphere(new THREE.Vector3(),3);
+    this.position.set(near?-.14:-.06,near?.09:-.10,.04);
+  }
+  animate(phase,opacity){
+    this.visible=opacity>0;
+    if(!this.visible)return;
+    this.material.opacity=opacity;
+    const near=this.near,span=near?1.84:1.47,height=near?.68:.38;
+    const positions=this.geometry.attributes.position;
+    for(let i=0;i<=sections;i++){
+      const t=1-i/sections;
+      const beat=Math.sin(phase-1.5*t+(near?0:-1.2));
+      const rise=t*((near?.66:-.70)+(.15+.29*t)*beat);
+      const x=-t*span*(1-.055*beat);
+      positions.setXYZ(i,x,rise+height*(near?.62:.35),0);
+      positions.setXYZ(i+sections+1,x,rise-height*(near?.38:.65),0);
+    }
+    positions.needsUpdate=true;
+  }
+}
+
 export class Heroine extends THREE.Group{
-  constructor(texture){
+  constructor(texture,castingTexture){
     super();
     texture.magFilter=texture.minFilter=THREE.NearestFilter;
     texture.generateMipmaps=false;
@@ -88,7 +121,14 @@ export class Heroine extends THREE.Group{
     this.left=new LightWing(-1,this.wingMaterial);this.right=new LightWing(1,this.wingMaterial);
     this.left.renderOrder=this.right.renderOrder=-2;
     this.wings.add(this.left,this.right);this.body.add(this.wings);
+    castingTexture.magFilter=castingTexture.minFilter=THREE.NearestFilter;
+    castingTexture.generateMipmaps=false;
+    castingTexture.colorSpace=THREE.SRGBColorSpace;
+    this.nearWing=new CastingWing(castingTexture,true);
+    this.farWing=new CastingWing(castingTexture,false);
+    this.wings.add(this.nearWing,this.farWing);
     this.socket=new THREE.Vector3();
+    this.setDark(false);
     this.reset();
   }
   reset(){
@@ -96,6 +136,8 @@ export class Heroine extends THREE.Group{
   }
   setDark(dark){
     this.body.material.color.setHex(dark?0xc4a0db:0xffffff);
+    this.nearWing.material.color.setHex(dark?0xe3abff:0xfff6e7);
+    this.farWing.material.color.setHex(dark?0xca86ff:0xedc588);
     this.wingMaterial.color.setHex(dark?0xe1a6ff:0xffdf9a);
   }
   selectFrame(motion,frame){
@@ -115,7 +157,7 @@ export class Heroine extends THREE.Group{
     this.time=motion===this.motion?this.time+dt:0;
     this.motion=motion;
     let frame;
-    if(motion==='laser')frame=attack==='charge'?Math.min(3,Math.floor(actionTime/chargeDuration*4)):4+Math.floor(actionTime/.12)%4;
+    if(motion==='laser')frame=attack==='charge'?Math.min(3,Math.floor(actionTime/chargeDuration*4)):4+Math.floor(actionTime/.135)%4;
     else if(motion==='ram')frame=actionTime<.13?Math.min(3,Math.floor(actionTime/.0325)):4+Math.floor((actionTime-.13)/.06)%4;
     else if(motion==='recoil')frame=Math.min(7,Math.floor(actionTime/returnDuration*8));
     else if(motion==='left'||motion==='right')frame=this.time<.20?Math.floor(this.time/.05):4+Math.floor((this.time-.20)/.14)%4;
@@ -135,7 +177,7 @@ export class Heroine extends THREE.Group{
     const foldTarget=motion==='laser'?1:0;
     this.laserFold+=THREE.MathUtils.clamp(foldTarget-this.laserFold,-dt/.27,dt/.40);
     const fold=THREE.MathUtils.smoothstep(this.laserFold,0,1);
-    this.phase+=dt*(3.9+1.6*this.sweep+(attack==='charge'?1.8:0));
+    this.phase+=dt*(3.9+1.6*this.sweep+1.9*fold+(attack==='charge'?1.8:0));
     const hoverLift=motion==='hover'?.045*Math.sin(this.phase):0;
     this.body.position.y+=(hoverLift-this.body.position.y)*(1-Math.exp(-dt*8));
     if(this.wings.visible){
@@ -147,11 +189,15 @@ export class Heroine extends THREE.Group{
       const bias=turning?bank*.24:0;
       this.left.animate(this.phase,strength-bias,this.sweep,fold);
       this.right.animate(this.phase-.48*fold,strength+bias,this.sweep,fold);
-      this.wingMaterial.opacity=.86+.055*Math.sin(this.phase-.6);
+      const casting=THREE.MathUtils.smoothstep(fold,.32,.93);
+      this.left.visible=this.right.visible=casting<1;
+      this.wingMaterial.opacity=(1-casting)*(.86+.055*Math.sin(this.phase-.6));
+      this.nearWing.animate(this.phase,casting*.96);
+      this.farWing.animate(this.phase,casting*.94);
     }
   }
   handPosition(target){
-    const [x,y]=palm[Math.max(0,this.frame-4)];
+    const [x,y]=palm;
     return this.body.localToWorld(target.set((x-48)*pixel,(48-y)*pixel,.015));
   }
   backPosition(target){return this.body.localToWorld(target.copy(this.socket));}
