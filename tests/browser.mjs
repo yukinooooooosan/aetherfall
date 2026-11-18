@@ -35,6 +35,7 @@ try{
  const anchor=(await state()).position;
  p=await center('#flight-pad');await touch('touchStart',[{x:p.x+35,y:p.y+30,id:1}]);
  await wait(()=>window.__aether.state.beamOn&&window.__aether.world.shots>0);
+ const laserX=(await state()).hero.screenX;assert.ok(laserX>.29&&laserX<.38,'portrait caster stays left of the reticle');
  assert.equal((await state()).hero.motion,'laser');assert.ok((await state()).hero.frame>=4);
  assert.deepEqual((await state()).position,anchor);assert.ok((await state()).yaw<-.1);
  assert.ok(await page.locator('#crosshair').isVisible());await touch('touchEnd',[]);await snapshot('sweeping-laser');

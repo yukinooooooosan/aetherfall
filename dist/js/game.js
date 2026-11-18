@@ -394,7 +394,9 @@ function updateChaseCamera(dt,distance,height,response){
 }
 const chargeDuration=.7,returnDuration=.72;
 let attack='flight',attackTime=0,sightYaw=0,sightPitch=0,dashDistance=0;
-const laserCameraStart=new THREE.Vector3(),beamOrigin=new THREE.Vector3();
+const laserStartRotation=new THREE.Quaternion(),laserAimRotation=new THREE.Quaternion();
+const laserStartOffset=new THREE.Vector3(),laserOffset=new THREE.Vector3(),beamOrigin=new THREE.Vector3();
+const laserAngles=new THREE.Euler(0,0,0,'YXZ');
 const dashStart=new THREE.Vector3(),dashEnd=new THREE.Vector3(),dashDir=new THREE.Vector3();
 let rain=false,dropProgress=0;
 const drops=[],dropGeometry=new THREE.IcosahedronGeometry(.48,0);
@@ -495,7 +497,9 @@ function useAttack(action){
   if(attack==='dash'||attack==='return')return;
   if(action==='laser'){
     if(attack!=='flight'){setAttack('flight');return;}
-    laserCameraStart.copy(camera.position);sightYaw=yaw;sightPitch=-.37;velocity.set(0,0,0);speed=0;setAttack('charge');
+    laserStartRotation.copy(camera.quaternion);
+    laserStartOffset.copy(camera.position).sub(playerPos).applyQuaternion(laserAimRotation.copy(laserStartRotation).invert());
+    sightYaw=yaw;sightPitch=-.37;velocity.set(0,0,0);speed=0;setAttack('charge');
     document.body.classList.remove('boosting');
     if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.15);
   }else if(action==='dash'){
@@ -508,16 +512,18 @@ function useAttack(action){
 function steerLaser(dt,turn,lift){
   attackTime+=dt;sightYaw+=turn*dt*1.55;sightPitch=clamp(sightPitch+lift*dt*1.15,-1.45,1.35);
   yaw=sightYaw;
-  const direction=new THREE.Vector3(-Math.sin(yaw)*Math.cos(sightPitch),Math.sin(sightPitch),-Math.cos(yaw)*Math.cos(sightPitch));
-  const left=new THREE.Vector3(-Math.cos(yaw),0,Math.sin(yaw));
   const halfWidthPerMeter=camera.aspect*Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
   const distance=Math.max(10,3.8/halfWidthPerMeter);
   const shoulderOffset=Math.min(4.2,distance*halfWidthPerMeter*.33);
-  const shoulder=playerPos.clone().addScaledVector(direction,-distance).addScaledVector(left,shoulderOffset);
-  shoulder.y+=1.2;
+  // In portrait the caster occupies the left third, leaving room for the right hand and beam.
+  laserOffset.set(camera.aspect<1?shoulderOffset:-shoulderOffset,1.2*Math.cos(sightPitch),distance-1.2*Math.sin(sightPitch));
+  laserAimRotation.setFromEuler(laserAngles.set(sightPitch,yaw,0));
   const t=attack==='charge'?Math.min(1,attackTime/.28):1;
-  camera.position.lerpVectors(laserCameraStart,shoulder,t*t*(3-2*t));
-  camera.lookAt(v3.copy(camera.position).add(direction));camera.updateMatrixWorld();
+  const blend=t*t*(3-2*t);
+  camera.quaternion.slerpQuaternions(laserStartRotation,laserAimRotation,blend);
+  // Blend in camera space so aiming during windup cannot swing the caster across the reticle.
+  camera.position.lerpVectors(laserStartOffset,laserOffset,blend).applyQuaternion(camera.quaternion).add(playerPos);
+  camera.updateMatrixWorld();
   avatar.position.copy(playerPos);avatar.rotation.set(0,yaw,0);
   const windup=attack==='charge'?Math.sin(Math.min(1,attackTime/chargeDuration)*Math.PI/2):.25;
   avatarPose.rotation.set(.18*windup,0,0);
@@ -788,5 +794,5 @@ pad.addEventListener('pointerdown',e=>{if(!active||paused||demo||padInput.pointe
 pad.addEventListener('pointermove',movePad);
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('collapse'))setupLab(true);else if(q.has('demo'))begin(true);
-  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,hero:{motion:heroine.motion,frame:heroine.frame,beamOrigin:beamOrigin.toArray()},rain,drops:drops.length,aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
+  if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,hero:{motion:heroine.motion,frame:heroine.frame,screenX:(playerPos.clone().project(camera).x+1)/2,beamOrigin:beamOrigin.toArray()},rain,drops:drops.length,aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}
