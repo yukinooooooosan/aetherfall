@@ -146,7 +146,7 @@ test('flip shot starts at the current camera, tracks close to the subject and ex
     turn.cameraOffset=new Vector3(6,7,17);
     assert.ok(turn.orbitOffset(0,15,out).distanceTo(turn.cameraOffset)<1e-8);
     turn.orbitOffset(.5,15,out);
-    assert.ok(Math.abs(Math.hypot(out.x,out.z)-8)<1e-8);
+    assert.ok(Math.abs(Math.hypot(out.x,out.z)-10)<1e-8);
     assert.ok(Math.abs(out.y-1.25)<1e-8);
     assert.equal(turn.orbitWeight(.5),1);
     turn.orbitOffset(1,15,out);

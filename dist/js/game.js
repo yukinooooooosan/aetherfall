@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { DoubleTap, FlightManeuver } from './maneuvers.js?v=0.8.1';
+import { DoubleTap, FlightManeuver } from './maneuvers.js?v=0.8.2';
 import { Heroine } from './heroine.js?v=0.8.0';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 

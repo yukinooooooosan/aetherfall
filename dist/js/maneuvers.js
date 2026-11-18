@@ -36,7 +36,7 @@ export class FlightManeuver {
     const angle=this.cameraHeading(t)+(1-settle)*Math.atan2(Math.sin(entryAngle),Math.cos(entryAngle));
     const weight=this.orbitWeight(t);
     const base=THREE.MathUtils.lerp(Math.hypot(entry.x,entry.z),chaseRadius,settle);
-    const radius=THREE.MathUtils.lerp(base,8,weight);
+    const radius=THREE.MathUtils.lerp(base,10,weight);
     const height=THREE.MathUtils.lerp(THREE.MathUtils.lerp(entry.y,5.6,settle),1.25,weight);
     return out.set(Math.sin(angle)*radius,height,Math.cos(angle)*radius);
   }
