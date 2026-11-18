@@ -3,7 +3,7 @@ import * as THREE from '../vendor/three.module.js';
 const size=2.65, pixel=size/96;
 const rows=['hover','forward','left','right','ram','recoil','laser'];
 // Socket coordinates in the 96px drawings, measured from the top left.
-const palm=[74,21];
+const palm=[67,18];
 const back={
   hover:[[48,29],[48,28],[48,26],[48,25],[48,25],[48,26],[48,29],[48,29]],
   forward:[[48,26],[48,26],[48,26],[48,27],[48,27],[48,27],[48,26],[48,26]],
