@@ -1,7 +1,7 @@
 import * as THREE from '../vendor/three.module.js';
 
 const size=2.65, pixel=size/96;
-const rows=['hover','forward','left','right','ram','recoil','laser'];
+const rows=['hover','forward','left','right','ram','recoil','laser','release'];
 // Socket coordinates in the 96px drawings, measured from the top left.
 const palm=[67,18];
 const back={
@@ -11,6 +11,7 @@ const back={
   right:[[47,28],[48,28],[52,30],[56,32],[59,34],[61,35],[61,35],[61,35]],
   ram:[[48,28],[47,33],[47,38],[47,42],[47,44],[47,45],[47,45],[47,45]],
   recoil:[[49,30],[49,32],[49,41],[47,48],[49,49],[52,42],[50,31],[48,28]],
+  release:[[47,26],[47,26],[48,27],[48,28]],
   laser:[[48,28],[48,28],[48,28],[48,28],[46,25],[46,25],[46,25],[46,25]]
 };
 
@@ -113,12 +114,13 @@ export class Heroine extends THREE.Group{
     this.frame=frame;
     this.texture.offset.set(frame/8,1-(rows.indexOf(motion)+1)/rows.length);
   }
-  update(dt,camera,pose,attack,actionTime,chargeDuration,returnDuration,horizontalSpeed){
+  update(dt,camera,pose,attack,actionTime,chargeDuration,returnDuration,horizontalSpeed,releaseFrame=-1){
     // The heading belongs to the parent. Keep the drawing facing the chase camera.
     this.quaternion.copy(this.parent.quaternion).invert().multiply(camera.quaternion);
     const bank=pose.rotation.z;
     let motion;
     if(attack==='charge'||attack==='laser')motion='laser';
+    else if(releaseFrame>=0)motion='release';
     else if(attack==='dash')motion='ram';
     else if(attack==='return')motion='recoil';
     else if(Math.abs(bank)>.085)motion=bank>0?'left':'right';
@@ -127,6 +129,7 @@ export class Heroine extends THREE.Group{
     this.motion=motion;
     let frame;
     if(motion==='laser')frame=attack==='charge'?Math.min(3,Math.floor(actionTime/chargeDuration*4)):4+Math.floor(actionTime/.135)%4;
+    else if(motion==='release')frame=Math.min(3,releaseFrame);
     else if(motion==='ram')frame=actionTime<.13?Math.min(3,Math.floor(actionTime/.0325)):4+Math.floor((actionTime-.13)/.06)%4;
     else if(motion==='recoil')frame=Math.min(7,Math.floor(actionTime/returnDuration*8));
     else if(motion==='left'||motion==='right')frame=this.time<.20?Math.floor(this.time/.05):4+Math.floor((this.time-.20)/.14)%4;
@@ -144,7 +147,7 @@ export class Heroine extends THREE.Group{
     const targetSweep=motion==='recoil'?.95:motion==='laser'?.1:speedFraction;
     this.sweep+=(targetSweep-this.sweep)*(1-Math.exp(-dt*8));
     const foldTarget=motion==='laser'?1:0;
-    this.laserFold+=THREE.MathUtils.clamp(foldTarget-this.laserFold,-dt/.27,dt/.40);
+    this.laserFold+=THREE.MathUtils.clamp(foldTarget-this.laserFold,-dt/.48,dt/.40);
     const fold=THREE.MathUtils.smoothstep(this.laserFold,0,1);
     this.phase+=dt*(3.9+1.6*this.sweep+1.9*fold+(attack==='charge'?1.8:0));
     const hoverLift=motion==='hover'?.045*Math.sin(this.phase):0;

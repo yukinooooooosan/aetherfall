@@ -1,5 +1,5 @@
 import * as THREE from '../vendor/three.module.js';
-import { Heroine } from './heroine.js?v=0.7.7';
+import { Heroine } from './heroine.js?v=0.7.8';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=0.6.5';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
@@ -299,7 +299,7 @@ function buildTrees(){
 function createAvatar(){
   const root=new THREE.Group();
   avatarPose=new THREE.Group();root.add(avatarPose);
-  const atlas=new THREE.TextureLoader().load(new URL('../assets/heroine-flight-v1.png?v=0.7.7',import.meta.url).href,undefined,undefined,()=>fatal('主人公の画像を読み込めませんでした。'));
+  const atlas=new THREE.TextureLoader().load(new URL('../assets/heroine-flight-v1.png?v=0.7.8',import.meta.url).href,undefined,undefined,()=>fatal('主人公の画像を読み込めませんでした。'));
   heroine=new Heroine(atlas);root.add(heroine);
   return root;
 }
@@ -376,7 +376,15 @@ function updateProjectiles(dt){
 function updateChaseCamera(dt,distance,height,response){
   const heading=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
   const rear=playerPos.clone().addScaledVector(heading,-distance);rear.y+=height;
-  camera.position.lerp(rear,1-Math.exp(-dt*response));
+  const releasing=releaseRemaining>0;
+  if(releasing){
+    releaseRemaining=Math.max(0,releaseRemaining-dt);
+    const progress=1-releaseRemaining/releaseDuration;
+    const angle=Math.atan2(-8-height,29+distance);
+    laserAimRotation.setFromEuler(laserAngles.set(angle,yaw,0));
+    laserOffset.copy(rear).sub(playerPos).applyQuaternion(inverseCameraRotation.copy(laserAimRotation).invert());
+    blendLaserCamera(THREE.MathUtils.smoothstep(progress,0,1));
+  }else camera.position.lerp(rear,1-Math.exp(-dt*response));
   // Pull the camera inside the arch when masonry would hide the avatar.
   const boom=camera.position.clone().sub(playerPos),length=boom.length();
   boom.normalize();
@@ -388,14 +396,17 @@ function updateChaseCamera(dt,distance,height,response){
   }
   // Aim along the camera-to-player bearing, so follow lag during a turn does
   // not push the character to either side of the screen.
+  if(releasing)return;
   const viewForward=playerPos.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
   const target=playerPos.clone().addScaledVector(viewForward,29);target.y-=8;
   camera.lookAt(target);
 }
-const chargeDuration=.7,returnDuration=.72;
+const chargeDuration=.7,returnDuration=.72,fullReleaseDuration=.54;
+let releaseDuration=fullReleaseDuration,releaseRemaining=0,firstReleaseFrame=0;
 let attack='flight',attackTime=0,sightYaw=0,sightPitch=0,dashDistance=0;
 const laserStartRotation=new THREE.Quaternion(),laserAimRotation=new THREE.Quaternion();
 const laserStartOffset=new THREE.Vector3(),laserOffset=new THREE.Vector3(),beamOrigin=new THREE.Vector3();
+const inverseCameraRotation=new THREE.Quaternion();
 const laserAngles=new THREE.Euler(0,0,0,'YXZ');
 const dashStart=new THREE.Vector3(),dashEnd=new THREE.Vector3(),dashDir=new THREE.Vector3();
 let rain=false,dropProgress=0;
@@ -479,6 +490,7 @@ function sweepDashWings(){
 }
 
 function setAttack(mode){
+  releaseRemaining=0;
   attack=mode;attackTime=0;dashWings.visible=mode==='dash';
   const aiming=mode==='charge'||mode==='laser';
   $('#laser-button').setAttribute('aria-pressed',aiming);
@@ -492,8 +504,23 @@ function resetAttacks(){
   for(const drop of drops)scene.remove(drop.mesh);
   drops.length=0;
 }
+function captureLaserCamera(){
+  laserStartRotation.copy(camera.quaternion);
+  laserStartOffset.copy(camera.position).sub(playerPos).applyQuaternion(laserAimRotation.copy(laserStartRotation).invert());
+}
+function blendLaserCamera(blend){
+  camera.quaternion.slerpQuaternions(laserStartRotation,laserAimRotation,blend);
+  camera.position.lerpVectors(laserStartOffset,laserOffset,blend).applyQuaternion(camera.quaternion).add(playerPos);
+}
+function finishLaser(){
+  captureLaserCamera();
+  firstReleaseFrame=attack==='charge'?Math.max(1,3-Math.floor(attackTime/chargeDuration*3)):0;
+  releaseDuration=attack==='charge'?.16+.28*Math.min(1,attackTime/chargeDuration):fullReleaseDuration;
+  setAttack('flight');
+  releaseRemaining=releaseDuration;
+}
 function forwardPressed(){
-  if(attack==='laser'||attack==='charge')setAttack('flight');
+  if(attack==='laser'||attack==='charge')finishLaser();
 }
 function useAttack(action){
   if(!active||paused||demo||lab)return;
@@ -503,9 +530,8 @@ function useAttack(action){
   }
   if(attack==='dash'||attack==='return')return;
   if(action==='laser'){
-    if(attack!=='flight'){setAttack('flight');return;}
-    laserStartRotation.copy(camera.quaternion);
-    laserStartOffset.copy(camera.position).sub(playerPos).applyQuaternion(laserAimRotation.copy(laserStartRotation).invert());
+    if(attack!=='flight'){finishLaser();return;}
+    captureLaserCamera();
     sightYaw=yaw;sightPitch=-.37;velocity.set(0,0,0);speed=0;setAttack('charge');
     document.body.classList.remove('boosting');
     if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.15);
@@ -527,9 +553,7 @@ function steerLaser(dt,turn,lift){
   laserAimRotation.setFromEuler(laserAngles.set(sightPitch,yaw,0));
   const t=attack==='charge'?Math.min(1,attackTime/.28):1;
   const blend=t*t*(3-2*t);
-  camera.quaternion.slerpQuaternions(laserStartRotation,laserAimRotation,blend);
-  // Blend in camera space so aiming during windup cannot swing the caster across the reticle.
-  camera.position.lerpVectors(laserStartOffset,laserOffset,blend).applyQuaternion(camera.quaternion).add(playerPos);
+  blendLaserCamera(blend);
   camera.updateMatrixWorld();
   avatar.position.copy(playerPos);avatar.rotation.set(0,yaw,0);
   const windup=attack==='charge'?Math.sin(Math.min(1,attackTime/chargeDuration)*Math.PI/2):.25;
@@ -604,7 +628,8 @@ function updateFlight(dt){
   playerPos.x=clamp(playerPos.x,-550,550);playerPos.z=clamp(playerPos.z,-550,550);const floor=world.terrainHeight(playerPos.x,playerPos.z);
   playerPos.y=clamp(playerPos.y,Math.max(4,floor+2.4),240);
   speed=velocity.length();document.body.classList.toggle('boosting',boost&&move!==0);
-  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12;
+  const hoverBlend=1-releaseRemaining/releaseDuration;
+  avatar.position.copy(playerPos);avatar.position.y+=Math.sin(elapsed*2.8)*.12*hoverBlend;
   updateAvatarPose(dt,Math.hypot(velocity.x,velocity.z),velocity.y,turn);
   updateChaseCamera(dt,14+speed*.035,5.6,5);
   camera.fov=lerp(camera.fov,boost&&move?73:60,1-Math.exp(-dt*3));camera.updateProjectionMatrix();
@@ -704,7 +729,8 @@ function loop(now){
       updateDrops(dt,returning?0:Math.hypot(playerPos.x-lastPosition.x,playerPos.z-lastPosition.z));
     }if(FLIGHT_DEBUG)updateCourse(lastPosition,playerPos);}else if(!lab)updateAttract(dt);
     if(!lab){
-      heroine.update(dt,camera,avatarPose,attack,attackTime,chargeDuration,returnDuration,active?Math.hypot(velocity.x,velocity.z):3);
+      heroine.update(dt,camera,avatarPose,attack,attackTime,chargeDuration,returnDuration,active?Math.hypot(velocity.x,velocity.z):3,
+        releaseRemaining>0?firstReleaseFrame+Math.floor((1-releaseRemaining/releaseDuration)*(4-firstReleaseFrame)):-1);
       if(attack==='dash'){
         // Flutter the feather tips while the damaging leading edge holds its trajectory.
         const positions=dashWings.children[0].geometry.attributes.position;
@@ -726,7 +752,7 @@ function loop(now){
   renderer.render(scene,camera);
 }
 
-function begin(asDemo=false){heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
+function begin(asDemo=false){releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
 function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
