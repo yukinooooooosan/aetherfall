@@ -82,5 +82,25 @@ try{
  await page.goto('http://127.0.0.1:4173/?test=1&demo=1');await wait(()=>window.__aether?.state.demo);
  await page.waitForFunction(()=>window.__aether.state.courseStage==='clear',null,{timeout:60000});
  s=await state();assert.equal(s.beamOn,false);assert.equal(s.stats.destroyed,0);await page.locator('#take-control').tap();assert.equal(await page.locator('#touch-controls').isVisible(),true);assert.equal((await state()).pitch,0);
+ // The experiment is reachable from the flight guide and by a direct link.
+ await page.locator('#help').tap();await page.locator('#guide-lab').tap();
+ assert.equal(await page.locator('#collapse-panel').isVisible(),true);
+ for(const [selector,shot] of [['#lab-roof','collapse-roof'],['#lab-square','collapse-square']]){
+   await page.locator(selector).tap();await page.locator('#lab-break').tap();
+   await wait(()=>document.querySelector('#lab-result').textContent.includes('最大落下'));
+   const result=await page.evaluate(()=>({counts:window.__aether.world.collapse.shattered,drop:window.__aether.world.collapse.maxDrop}));
+   console.log(shot,result);const [wood,stone,tile]=result.counts;assert.ok(tile>0);
+   if(selector==='#lab-roof'){assert.ok(result.drop<3);assert.equal(wood+stone,0);}
+   else{assert.ok(result.drop>=12&&wood>0&&stone>0);}
+   await snapshot(shot);
+ }
+ await page.locator('#lab-break').tap();
+ await wait(()=>document.querySelector('#lab-result').textContent.includes('最大落下'));
+ await page.locator('#lab-exit').tap();assert.equal(await page.locator('#touch-controls').isVisible(),true);
+ assert.equal((await state()).stats.destroyed,0);
+ await page.setViewportSize({width:390,height:844});await page.goto('http://127.0.0.1:4173/?test=1&collapse=1');
+ await wait(()=>window.__aether);await snapshot('collapse-portrait');
+ assert.ok(await page.locator('#lab-break').isVisible());await page.locator('#lab-break').tap();
+ await wait(()=>document.querySelector('#lab-result').textContent.includes('最大落下'));
  assert.deepEqual(errors,[]);console.log('PASS: diagonal multitouch, independent flight, left/right bank, climb/descent pitch, speed lean, neutral recovery, cancellation, pause, no combat, landscape and demo');
 }finally{await browser.close();}
