@@ -63,6 +63,35 @@ try{
   await page.locator('#start').tap();
   assert.equal((await state()).stats.defenders,0);
   assert.equal(await page.locator('#missile-alert').isVisible(),false);
+  // Sample every rendered frame so the short gesture is observable on fast and slow GPUs.
+  await page.evaluate(()=>{
+    window.stepFrames=[];
+    function record(){
+      const s=window.__aether.state;
+      if(s.maneuver==='step')window.stepFrames.push({x:s.hero.screenX,bodyX:s.position[0],cameraX:s.cameraPosition[0],motion:s.hero.motion});
+      requestAnimationFrame(record);
+    }
+    record();
+  });
+  const stick=await center('#flight-pad',2), right={...stick,x:stick.x+44};
+  await touch('touchStart',[stick]);
+  const stamp=Date.now()/1000;
+  await touch('touchMove',[right],stamp);
+  await touch('touchMove',[stick],stamp+.08);
+  await touch('touchMove',[right],stamp+.16);
+  await touch('touchEnd',[]);
+  await wait(()=>window.stepFrames.some(f=>f.motion==='right') && !window.__aether.state.maneuver);
+  const rightEnd=await state();
+  assert.ok(rightEnd.position[0]>5.5 && rightEnd.position[0]<=6.01);
+  assert.ok(await page.evaluate(()=>window.stepFrames.some(f=>f.x>.53 && f.x<.9 && f.bodyX-f.cameraX>1)));
+  await wait(()=>Math.abs(window.__aether.state.hero.screenX-.5)<.01);
+  await page.keyboard.press('KeyA');
+  await page.keyboard.press('KeyA');
+  await wait(()=>window.stepFrames.some(f=>f.motion==='left') && !window.__aether.state.maneuver);
+  const leftEnd=await state();
+  assert.ok(rightEnd.position[0]-leftEnd.position[0]>5.5);
+  assert.equal(rightEnd.position[1],leftEnd.position[1]);
+  console.log('Right touch step and left keyboard step passed; camera lag and recovery verified');
   await page.goto(new URL('?siege=1&test=1',baseURL).href);
   await wait(()=>window.__aether?.state.active && window.__aether.state.defenderViews===2);
   assert.deepEqual(errors,[]);

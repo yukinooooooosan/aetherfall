@@ -203,3 +203,18 @@ test('after warning, a straight flight is intercepted but a vertical loop clears
     }
   }
 });
+
+test('a side step crosses six metres relative to heading while carrying entry speed',()=>{
+  for(const yaw of [0,.8,-2.4]){
+    for(const side of [-1,1]){
+      for(const speed of [0,32,97]){
+        const origin=new Vector3(4,53,-12), move=new FlightManeuver('step',origin,yaw,speed,side);
+        const travel=move.point(1,new Vector3()).sub(origin);
+        assert.ok(Math.abs(travel.dot(move.right)-6*side)<1e-8);
+        assert.ok(Math.abs(travel.dot(move.forward)-move.duration*speed)<1e-8);
+        assert.equal(travel.y,0);
+        assert.equal(move.heading(.5),yaw);
+      }
+    }
+  }
+});

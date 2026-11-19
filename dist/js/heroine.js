@@ -121,7 +121,8 @@ export class Heroine extends THREE.Group{
     this.quaternion.copy(this.parent.quaternion).invert().multiply(camera.quaternion);
     const bank=pose.rotation.z;
     let motion;
-    if(maneuver)motion=maneuver.kind;
+    if(maneuver?.kind==='step')motion=maneuver.side>0?'right':'left';
+    else if(maneuver)motion=maneuver.kind;
     else if(attack==='charge'||attack==='laser')motion='laser';
     else if(releaseFrame>=0)motion='release';
     else if(attack==='dash')motion='ram';

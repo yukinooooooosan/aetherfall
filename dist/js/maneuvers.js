@@ -16,13 +16,21 @@ export class DoubleTap {
   }
 }
 
+const durations={loop:1.65, flip:1.45, step:.32};
+const stepDistance=6;
+
 export class FlightManeuver {
   constructor(kind,position,yaw,speed,side){
     this.kind=kind;this.origin=position.clone();this.startYaw=yaw;this.entrySpeed=speed;
-    this.side=side;this.duration=kind==='loop'?1.65:1.45;this.time=0;
+    this.side=side;this.duration=durations[kind];this.time=0;
     this.forward=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
     this.right=new THREE.Vector3(Math.cos(yaw),0,-Math.sin(yaw));
     this.radius=Math.min(Math.max(3,speed*this.duration/(2*Math.PI)),(240-position.y)/2);
+  }
+  get collisionSampleSpeed(){
+    // Smoothstep's maximum slope is 1.5 at the midpoint.
+    if(this.kind==='step')return Math.hypot(this.entrySpeed,1.5*stepDistance/this.duration);
+    return Math.max(14,this.entrySpeed+4);
   }
   get progress(){return this.time/this.duration;}
   heading(t){return this.startYaw+(this.kind==='flip'?this.side*Math.PI*THREE.MathUtils.smoothstep(t,.19,.53):0);}
@@ -42,7 +50,10 @@ export class FlightManeuver {
   }
   point(t,out){
     out.copy(this.origin);
-    if(this.kind==='loop'){
+    if(this.kind==='step'){
+      out.addScaledVector(this.forward,this.entrySpeed*this.duration*t);
+      out.addScaledVector(this.right,this.side*stepDistance*THREE.MathUtils.smoothstep(t,0,1));
+    }else if(this.kind==='loop'){
       const angle=t*2*Math.PI;
       out.addScaledVector(this.forward,this.radius*Math.sin(angle));
       out.y+=this.radius*(1-Math.cos(angle));

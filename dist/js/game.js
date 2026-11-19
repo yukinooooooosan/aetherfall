@@ -1,7 +1,7 @@
 import * as THREE from '../vendor/three.module.js';
-import { DoubleTap, FlightManeuver } from './maneuvers.js?v=0.8.2';
+import { DoubleTap, FlightManeuver } from './maneuvers.js?v=step1';
 import { StormCompanion } from './companion.js?v=0.9.1';
-import { Heroine } from './heroine.js?v=0.8.0';
+import { Heroine } from './heroine.js?v=step1';
 import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from './missile.js';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=siege1';
 
@@ -10,9 +10,11 @@ const canvas=$('#world'),keys=new Set(),rng=random(829);
 // Independent vertical lift is used in both flight courses.
 const FLIGHT_DEBUG=true;
 const padInput={x:0,y:0,pointerId:null};
-const verticalTaps=new DoubleTap();
+const verticalTaps=new DoubleTap(), horizontalTaps=new DoubleTap();
+const flightKeys=new Set(['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
+function resetFlightTaps(){verticalTaps.reset();horizontalTaps.reset();}
 let maneuver=null,touchForward=false,loopRecovery=null;
-function resetControls(){verticalTaps.reset();touchForward=false;keys.clear();pointerDown=false;rightDown=false;padInput.x=padInput.y=0;padInput.pointerId=null;$('#pad-knob').style.transform='translate(-50%, -50%)';$('#flight-pad').classList.remove('engaged');for(const b of document.querySelectorAll('[data-key]')){b.classList.remove('pressed');b.setAttribute('aria-pressed','false');}}
+function resetControls(){resetFlightTaps();touchForward=false;keys.clear();pointerDown=false;rightDown=false;padInput.x=padInput.y=0;padInput.pointerId=null;$('#pad-knob').style.transform='translate(-50%, -50%)';$('#flight-pad').classList.remove('engaged');for(const b of document.querySelectorAll('[data-key]')){b.classList.remove('pressed');b.setAttribute('aria-pressed','false');}}
 let renderer,scene,camera,world,terrain,blockMesh,forest,treeTrunks,treeLeaves,humans=[],defenderViews=[],treeViews=[],effects=[],projectiles=[];
 let active=false,paused=false,demo=false,demon=false,beamOn=false,pointerDown=false,rightDown=false,audioOn=false;
 let pausedBeforeGuide=false,lab=false,catchRoof=true,labDropped=false;
@@ -427,6 +429,7 @@ function clipCameraBoom(){
   }
 }
 
+const stepCameraLag=new THREE.Vector3();
 const chaseVelocity=new THREE.Vector3(),previousCameraPosition=new THREE.Vector3();
 function updateLoopCamera(move,dt){
   // Carry the incoming camera velocity briefly, then let the heroine travel
@@ -474,8 +477,14 @@ function updateChaseCamera(dt,distance,height,response,headingYaw=yaw){
   // Aim along the camera-to-player bearing, so follow lag during a turn does
   // not push the character to either side of the screen.
   if(releasing)return;
-  const viewForward=playerPos.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
-  const target=playerPos.clone().addScaledVector(viewForward,29);target.y-=8;
+  stepCameraLag.multiplyScalar(Math.exp(-dt*9));
+  const focus=playerPos.clone();
+  // Let the heroine lead the view briefly. Keep her visible in portrait and near walls.
+  const halfWidth=camera.position.distanceTo(playerPos)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*camera.aspect;
+  stepCameraLag.clampLength(0,halfWidth*.32);
+  focus.sub(stepCameraLag);
+  const viewForward=focus.clone().sub(camera.position);viewForward.y=0;viewForward.normalize();
+  const target=focus.addScaledVector(viewForward,29);target.y-=8;
   if(maneuver?.kind==='flip'){
     // Ease the gaze from the flight path onto the heroine through the side view.
     target.lerp(playerPos,maneuver.orbitWeight(maneuver.progress));
@@ -574,8 +583,9 @@ function sweepDashWings(){
 }
 
 function setAttack(mode){
+  stepCameraLag.set(0,0,0);
   loopRecovery=null;
-  verticalTaps.reset();
+  resetFlightTaps();
   releaseRemaining=0;
   attack=mode;attackTime=0;dashWings.visible=mode==='dash';
   const aiming=mode==='charge'||mode==='laser';
@@ -680,16 +690,22 @@ function liftInput(){
 }
 function sampleFlightTap(time){
   if(!active||paused||demo||lab||attack!=='flight'||maneuver)return;
-  const direction=verticalTaps.sample(liftInput(),time);
-  if(!direction)return;
-  const next=new FlightManeuver(direction>0?'loop':'flip',playerPos,yaw,Math.hypot(velocity.x,velocity.z),turnInput()>.15?1:-1);
+  const lift=liftInput(), turn=turnInput();
+  const vertical=verticalTaps.sample(lift,time);
+  const sideways=Math.abs(turn)>Math.abs(lift)+.1;
+  if(!sideways && Math.abs(lift)>.5)horizontalTaps.reset();
+  const horizontal=horizontalTaps.sample(sideways ? -turn : 0,time);
+  if(!vertical&&!horizontal)return;
+  const kind=vertical ? (vertical>0?'loop':'flip') : 'step';
+  const side=kind==='step' ? horizontal : (turn>.15?1:-1);
+  const next=new FlightManeuver(kind,playerPos,yaw,Math.hypot(velocity.x,velocity.z),side);
   if(next.kind==='loop'&&next.radius<.75){toast('宙返りする高さが足りません');return;}
-  loopRecovery=null;
+  loopRecovery=null;stepCameraLag.set(0,0,0);
   if(next.kind==='loop'){
     next.entryCameraVelocity=chaseVelocity.clone();
     next.inverseView=camera.quaternion.clone().invert();
     next.cameraSpace=new THREE.Vector3();
-  }else next.cameraOffset=camera.position.clone().sub(playerPos);
+  }else if(next.kind==='flip')next.cameraOffset=camera.position.clone().sub(playerPos);
   maneuver=next;releaseRemaining=0;avatarPose.rotation.set(0,0,0);
 }
 function updateManeuver(dt){
@@ -697,7 +713,7 @@ function updateManeuver(dt){
   const end=Math.min(move.duration,move.time+dt);
   const from=playerPos.clone(),next=new THREE.Vector3();
   // Sample the arc itself so low frame rates cannot skip terrain or a thin wall.
-  const steps=Math.max(1,Math.ceil((end-move.time)*Math.max(14,move.entrySpeed+4)/.5));
+  const steps=Math.max(1,Math.ceil((end-move.time)*move.collisionSampleSpeed/.5));
   const start=move.time;
   let blocked=false;
   for(let i=1;i<=steps;i++){
@@ -711,13 +727,17 @@ function updateManeuver(dt){
   yaw=move.heading(move.progress);pitch=0;
   avatar.position.copy(playerPos);avatar.rotation.set(0,yaw,0);
   velocity.subVectors(playerPos,from).divideScalar(dt);speed=velocity.length();
+  if(move.kind==='step'){
+    stepCameraLag.addScaledVector(move.right,velocity.dot(move.right)*dt);
+    avatarPose.rotation.z=-move.side*.55*Math.sin(Math.PI*move.progress);
+  }
   if(move.kind==='loop')updateLoopCamera(move,dt);
   else updateChaseCamera(dt,14+move.entrySpeed*.035,5.6,5);
   if(blocked||end===move.duration){
     if(move.kind==='loop')loopRecovery={start:camera.quaternion.clone(),velocity:camera.position.clone().sub(previousCameraPosition).divideScalar(dt).clampLength(0,100),time:0};
     const exitSpeed=blocked?0:move.entrySpeed;
     velocity.set(-Math.sin(yaw)*exitSpeed,0,-Math.cos(yaw)*exitSpeed);speed=exitSpeed;
-    maneuver=null;verticalTaps.reset();
+    maneuver=null;resetFlightTaps();
   }
 }
 function updateFlight(dt){
@@ -828,7 +848,7 @@ function drawMap(){
 function updateHud(){
   const stats=world.getStats();$('#destroyed').textContent=stats.destroyed.toLocaleString();$('#burning').textContent=stats.burning;$('#panicking').textContent=stats.panicking;
   $('#speed').textContent=Math.round(speed*3.6);$('#altitude').textContent=Math.round(playerPos.y-world.terrainHeight(playerPos.x,playerPos.z));$('#health-label').textContent=Math.round(health);$('#health-bar').style.width=health+'%';
-  $('#flight-state').textContent=maneuver?(maneuver.kind==='loop'?'LOOP':'FLIP TURN'):speed>55?'HYPER FLIGHT':speed<1?'HOVERING':'CRUISING';$('#fps').textContent=Math.round(fps)+' FPS';
+  $('#flight-state').textContent=maneuver?({loop:'LOOP',flip:'FLIP TURN',step:'SIDE STEP'}[maneuver.kind]):speed>55?'HYPER FLIGHT':speed<1?'HOVERING':'CRUISING';$('#fps').textContent=Math.round(fps)+' FPS';
   $('#target-label').textContent=aimHit?.block?MATERIALS[aimHit.block.mat].name+' / '+world.buildings[aimHit.block.building].name:aimHit?.type==='terrain'?'地表 / 破壊可能':'';drawMap();
 }
 function loop(now){
@@ -938,8 +958,8 @@ window.addEventListener('resize',resize);window.addEventListener('keydown',e=>{
   if(action){useAttack(action);return;}
   if(e.code==='Space')forwardPressed();
   keys.add(e.code);
-  if(['KeyW','KeyS','ArrowUp','ArrowDown'].includes(e.code))sampleFlightTap(e.timeStamp);
-});window.addEventListener('keyup',e=>{keys.delete(e.code);if(['KeyW','KeyS','ArrowUp','ArrowDown'].includes(e.code))sampleFlightTap(e.timeStamp);});window.addEventListener('blur',()=>{resetControls();if(active&&!demo)setPaused(true);});
+  if(flightKeys.has(e.code))sampleFlightTap(e.timeStamp);
+});window.addEventListener('keyup',e=>{keys.delete(e.code);if(flightKeys.has(e.code))sampleFlightTap(e.timeStamp);});window.addEventListener('blur',()=>{resetControls();if(active&&!demo)setPaused(true);});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());canvas.addEventListener('pointerdown',e=>{if(FLIGHT_DEBUG||!active||paused||demo)return;canvas.setPointerCapture(e.pointerId);if(e.button===0)pointerDown=true;if(e.button===2)rightDown=true;});canvas.addEventListener('pointerup',e=>{if(e.button===0)pointerDown=false;if(e.button===2)rightDown=false;});canvas.addEventListener('pointercancel',()=>{pointerDown=rightDown=false;});canvas.addEventListener('pointermove',e=>{if(FLIGHT_DEBUG||!active||paused||demo||!(pointerDown||rightDown))return;yaw-=e.movementX*.003;pitch=clamp(pitch-e.movementY*.0024,-1.18,1.18);});
 for(const b of document.querySelectorAll('[data-key]')){
   b.addEventListener('contextmenu',e=>e.preventDefault());
@@ -965,7 +985,7 @@ pad.addEventListener('pointermove',e=>{
   if(samples?.length){for(const sample of samples)movePad(sample);}
   else movePad(e);
 });
-for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;if(event==='pointerup')sampleFlightTap(e.timeStamp);else verticalTaps.reset();pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;if(event==='pointerup')sampleFlightTap(e.timeStamp);else resetFlightTaps();pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
 try{init();const q=new URLSearchParams(location.search);if(q.has('collapse'))setupLab(true);else if(q.has('demo'))begin(true);else if(q.has('siege'))startSiege();
   if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,maneuver:maneuver?.kind??null,maneuverProgress:maneuver?.progress??0,cameraPosition:camera.position.toArray(),cameraRotation:camera.quaternion.toArray(),screenY:(1-playerPos.clone().project(camera).y)/2,hero:{motion:heroine.motion,frame:heroine.frame,screenX:(playerPos.clone().project(camera).x+1)/2,beamOrigin:beamOrigin.toArray()},storm:{enabled:companion.enabled,visible:companion.visible&&companion.body.visible,phase:companion.phase,pass:companion.pass,count:companion.count,last:companion.lastStrike,flash:companion.bolt.visible,rift:companion.rift.time,position:companion.socket.toArray()},aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}
