@@ -3,7 +3,8 @@ import { DoubleTap, FlightManeuver } from './maneuvers.js?v=step1';
 import { StormCompanion } from './companion.js?v=0.9.1';
 import { Heroine } from './heroine.js?v=step1';
 import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from './missile.js';
-import {GateDetails} from './gate-details.js';
+import {GateDetails} from './gate-details.js?v=paint1';
+import {cellFinish,cellCoordinates,finishGateMaterial,finishTerrain} from './castle-materials.js';
 import {castleGates,castleHints,courtyardColor} from './castle.js?v=gate2';
 import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=gate2';
 
@@ -101,7 +102,7 @@ function rebuildWorld(notify=true){
   effects=[];projectiles=[];particleData.length=0;humans=[];defenderViews=[];treeViews=[];
   world=new World(7419,{castle,catchRoof:lab&&catchRoof,defenses:siege ? 'siege' : !FLIGHT_DEBUG});
   buildTerrain();buildBlocks();
-  if(castle)gateDetails=new GateDetails(world,scene);
+  if(castle)gateDetails=new GateDetails(world,scene,damageAtlas);
   buildHumans();if(world.defenders.length)buildDefenders();buildTrees();
   health=100;playerPos.copy(castle ? castleStart : startPosition);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
   $('#missile-alert').hidden=true;
@@ -165,8 +166,8 @@ function updateCourse(before,after){
 }
 
 function buildTerrain(){
-  const pos=[],colors=[],indices=[];const color=new THREE.Color();
-  function face(points,col){const start=pos.length/3;color.setHex(col);for(const p of points){pos.push(...p);colors.push(color.r,color.g,color.b);}indices.push(start,start+1,start+2,start,start+2,start+3);}
+  const pos=[],colors=[],indices=[],groundFaces=[];const color=new THREE.Color();
+  function face(points,col,surface=0){const start=pos.length/3;color.setHex(col);for(const p of points){pos.push(...p);if(castle)groundFaces.push(surface);colors.push(color.r,color.g,color.b);}indices.push(start,start+1,start+2,start,start+2,start+3);}
   for(let z=0;z<world.size;z++)for(let x=0;x<world.size;x++){
     const i=z*100+x,h=world.heights[i];if(!h)continue;const x0=x*4-200,z0=z*4-200,x1=x0+4,z1=z0+4,y=h*4;
     const noise=((x*137+z*331)%11)/11;let c=new THREE.Color().setHSL(.25+noise*.025,.21+noise*.08,.35+noise*.06).getHex();
@@ -178,19 +179,26 @@ function buildTerrain(){
     if(castle)c=courtyardColor(wx,wz)??c;
     else if(avenue||bend||Math.abs(z0-16)<3&&Math.abs(x0)<66)c=(x+z)%3===0?0xa99372:0xb19e7d;
     if(h<world.originalHeights[i])c=world.originalHeights[i]-h<3?0x887655:0x7f8177;
-    face([[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]],c);
+    face([[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]],c,Number(h===world.originalHeights[i]));
+    const bank=castle && h===world.originalHeights[i] && Math.abs(wx)<12 && wz>66 && wz<112?2:0;
     const dirs=[[1,0],[0,1],[-1,0],[0,-1]];
     for(const [dx,dz] of dirs){const nh=x+dx<0||z+dz<0||x+dx>=100||z+dz>=100?0:world.heights[(z+dz)*100+x+dx];
       for(let level=nh;level<h;level++){const by=level*4,ty=by+4,side=level<h-3?0x7e8175:level===h-1?0x777d50:0x8b7a56;
-        if(dx===1)face([[x1,by,z1],[x1,by,z0],[x1,ty,z0],[x1,ty,z1]],side);
-        if(dx===-1)face([[x0,by,z0],[x0,by,z1],[x0,ty,z1],[x0,ty,z0]],side);
-        if(dz===1)face([[x0,by,z1],[x1,by,z1],[x1,ty,z1],[x0,ty,z1]],side);
-        if(dz===-1)face([[x1,by,z0],[x0,by,z0],[x0,ty,z0],[x1,ty,z0]],side);
+        if(dx===1)face([[x1,by,z1],[x1,by,z0],[x1,ty,z0],[x1,ty,z1]],side,bank);
+        if(dx===-1)face([[x0,by,z0],[x0,by,z1],[x0,ty,z1],[x0,ty,z0]],side,bank);
+        if(dz===1)face([[x0,by,z1],[x1,by,z1],[x1,ty,z1],[x0,ty,z1]],side,bank);
+        if(dz===-1)face([[x1,by,z0],[x0,by,z0],[x0,ty,z0],[x1,ty,z0]],side,bank);
       }
     }
   }
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));g.setIndex(indices);g.computeVertexNormals();
-  if(terrain){terrain.geometry.dispose();terrain.geometry=g;}else terrain=mesh(g,material(0xffffff,{vertexColors:true}));
+  if(castle)g.setAttribute('groundFace',new THREE.Float32BufferAttribute(groundFaces,1));
+  if(terrain){terrain.geometry.dispose();terrain.geometry=g;}
+  else{
+    const surface=material(0xffffff,{vertexColors:true});
+    if(castle)finishTerrain(surface);
+    terrain=mesh(g,surface);
+  }
   world.terrainDirty=false;
 }
 function patchFace(ctx,color,points){
@@ -279,18 +287,26 @@ function buildBlocks(){
   const tiles=new THREE.InstancedBufferAttribute(Float32Array.from(world.blocks,damageTile),1);
   geometry.setAttribute('crackTile',tiles.setUsage(THREE.DynamicDrawUsage));
   const surface=material(0xffffff,{map:damageAtlas});
-  surface.onBeforeCompile=shader=>{
+  if(castle){cellCoordinates(geometry,world);finishGateMaterial(surface);}
+  else surface.onBeforeCompile=shader=>{
     shader.vertexShader='attribute float crackTile;\n'+shader.vertexShader.replace('#include <uv_vertex>',`#include <uv_vertex>
       vMapUv=(vec2(mod(crackTile,4.0),floor(crackTile/4.0))+mix(vec2(.02),vec2(.98),vMapUv))/vec2(4.0,12.0);`);
   };
   blockMesh=new THREE.InstancedMesh(geometry,surface,world.blocks.length);blockMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);blockMesh.frustumCulled=false;
-  const color=new THREE.Color();for(const b of world.blocks){temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();blockMesh.setMatrixAt(b.id,temp.matrix);color.setHex(b.color??MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);blockMesh.setColorAt(b.id,color);}
+  const color=new THREE.Color();
+  for(const b of world.blocks){
+    temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(b.alive?1:0);temp.rotation.set(0,0,0);temp.updateMatrix();
+    blockMesh.setMatrixAt(b.id,temp.matrix);
+    if(castle && cellFinish(world,b))color.setHex(0xffffff);
+    else color.setHex(b.color??MATERIALS[b.mat].color).multiplyScalar(.84+((b.id*137)%17)/60);
+    blockMesh.setColorAt(b.id,color);
+  }
   blockMesh.instanceMatrix.needsUpdate=true;blockMesh.instanceColor.needsUpdate=true;scene.add(blockMesh);
 }
 function updateBlocks(){
   const tiles=blockMesh.geometry.attributes.crackTile;
   for(const id of world.changed){const b=world.blocks[id],tile=damageTile(b);
-    gateDetails?.update(b,shedGateTile);
+    gateDetails?.update(b,shedGateTile,tile);
     if(tiles.getX(id)!==tile){tiles.setX(id,tile);tiles.needsUpdate=true;}
     if(!b.alive){temp.position.set(b.x,-1000,b.z);temp.scale.setScalar(0);temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);}else{
     temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(1);temp.rotation.set(0,0,0);
@@ -411,7 +427,8 @@ function processEvents(){
     if(e.type==='debris'&&debrisCount++<95){
       const materialDebris=e.reason==='landing' || e.building===world.entranceBuilding;
       const kind=materialDebris?['splinter','dust','tile'][e.mat]:'debris';
-      const color=kind==='dust'?0xbeaf94:kind==='splinter'?0xc28e60:e.color;
+      const chipColor=e.building===world.entranceBuilding && e.mat===2?0x546f80:e.color;
+      const color=kind==='dust'?0xbeaf94:kind==='splinter'?0xc28e60:chipColor;
       emit(e.x,e.y,e.z,color,materialDebris?4:1,e.reason==='landing'?7:10,kind);
     }
     if(e.type==='impact'&&e.effect==='lightning'){

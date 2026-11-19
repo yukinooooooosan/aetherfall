@@ -10,6 +10,12 @@ const browser = await chromium.launch({
 const page = await browser.newPage({viewport:{width:390,height:844}, hasTouch:true, isMobile:true, deviceScaleFactor:.75});
 const errors=[];
 page.on('pageerror',error=>errors.push(error.message));
+page.on('console',message=>{
+  if(message.type()==='error' && message.text().includes('THREE.WebGLProgram'))errors.push(message.text());
+});
+page.on('response',response=>{
+  if(response.url().includes('/assets/otemon/') && response.status()>=400)errors.push(response.url());
+});
 const wait=predicate=>page.waitForFunction(predicate,null,{timeout:45000});
 const state=()=>page.evaluate(()=>window.__aether.state);
 const cdp=await page.context().newCDPSession(page);
@@ -126,6 +132,11 @@ try{
   await page.locator('#reset').tap();
   assert.ok(await page.evaluate(()=>window.__aether.world.solidAt(0,41,66)?.alive && window.__aether.world.looseCount===0));
   console.log('Main gate roof tilted toward the laser cut and reset restored the gate');
+  for(const [file,type] of [['bridge.png','image/png'],['threshold.png','image/png'],['court.png','image/png'],['low-flight.mp4','video/mp4']]){
+    const preview=await page.request.head(new URL('previews/otemon/'+file,baseURL).href);
+    assert.ok(preview.ok(),file);
+    assert.ok(preview.headers()['content-type']?.includes(type),file);
+  }
   assert.deepEqual(errors,[]);
 } catch(error){
   console.error('Flight at failure:', await page.evaluate(()=>{
