@@ -218,3 +218,19 @@ test('a side step crosses six metres relative to heading while carrying entry sp
     }
   }
 });
+
+test('castle starts supported, with an open approach across the moat and two flyable gates',()=>{
+  const w=new World(7419,{castle:true});
+  assert.equal(w.terrainHeight(0,76),16);
+  assert.equal(w.terrainHeight(24,76),0);
+  for(const [x,z] of [[0,60],[26,-8]]){
+    for(let dz=-5;dz<=5;dz++)assert.equal(w.solidAt(x,27,z+dz),null);
+    assert.ok(w.solidAt(x+10,27,z));
+  }
+  w.buildings.forEach((_,i)=>w.dirtyBuildings.add(i));
+  w.checkSupport();
+  assert.equal(w.looseCount,0);
+  const roof=w.blocks.find(b=>b.mat===2 && b.building===w.buildings.findIndex(t=>t.name==='白鷺天守'));
+  w.damage(roof,100);
+  assert.equal(roof.alive,false);
+});

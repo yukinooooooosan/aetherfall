@@ -1,3 +1,4 @@
+import {buildCastle,castleTerrain} from './castle.js';
 import {Collapse} from './collapse.js?v=0.5.0';
 
 // Engine-independent world state. Units are metres; +Y is up.
@@ -23,16 +24,20 @@ export function random(seed=7419) {return ()=> {seed|=0;seed=seed+0x6D2B79F5|0;l
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const key=(x,y,z)=>`${x},${y},${z}`;
 export class World {
-  constructor(seed=7419,{catchRoof=false,defenses=true}={}) {
+  constructor(seed=7419,{catchRoof=false,defenses=true,castle=false}={}) {
     this.rng=random(seed);this.size=100;this.cell=4;this.half=200;
     this.heights=new Int16Array(this.size*this.size);this.originalHeights=new Int16Array(this.size*this.size);
     this.blocks=[];this.spatial=new Map();this.grid=new Map();this.buildings=[];this.humans=[];this.defenders=[];
     this.burning=new Set();this.changed=new Set();this.dirtyBuildings=new Set();this.events=[];
     this.destroyed=0;this.excavated=0;this.ignited=0;this.shots=0;this.tickTime=0;this.supportClock=0;this.terrainDirty=true;
     this.looseCount=0;this.collapse=new Collapse(this,MATERIALS);
-    this.generateTerrain();this.generateTown(defenses);if(catchRoof)this.makeCatchRoof();this.initialBlocks=this.blocks.length;
+    this.generateTerrain(castle);
+    if(castle)buildCastle(this);
+    else this.generateTown(defenses);
+    if(catchRoof && !castle)this.makeCatchRoof();
+    this.initialBlocks=this.blocks.length;
   }
-  generateTerrain(){
+  generateTerrain(castle){
     for(let z=0;z<this.size;z++)for(let x=0;x<this.size;x++){
       const wx=x*4-this.half+2,wz=z*4-this.half+2;
       const r=Math.hypot(wx/178,wz/183);
@@ -41,7 +46,7 @@ export class World {
       h+=Math.round(12*Math.exp(-((wx+57)**2/1500+(wz+119)**2/900)));
       h+=Math.round(7*Math.exp(-((wx-92)**2/800+(wz+86)**2/1200)));
       if(Math.abs(wx)<66&&wz>-84&&wz<94)h=4;
-      this.heights[z*this.size+x]=h;
+      this.heights[z*this.size+x]=castle ? castleTerrain(wx,wz,h) : h;
     }
     this.originalHeights.set(this.heights);
   }

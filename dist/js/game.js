@@ -3,7 +3,8 @@ import { DoubleTap, FlightManeuver } from './maneuvers.js?v=step1';
 import { StormCompanion } from './companion.js?v=0.9.1';
 import { Heroine } from './heroine.js?v=step1';
 import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from './missile.js';
-import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=siege1';
+import {castleGates,castleHints,courtyardColor} from './castle.js';
+import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=castle1';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -22,7 +23,8 @@ let elapsed=0,fireClock=0,simClock=0,hudClock=0,toastClock=0,hitClock=0,frameCou
 let yaw=0,pitch=-.08,health=100,velocity=new THREE.Vector3(),speed=0,aim=new THREE.Vector3(),aimHit=null;
 const playerPos=new THREE.Vector3(0,63,142),forward=new THREE.Vector3(),temp=new THREE.Object3D(),v3=new THREE.Vector3(),ray=new THREE.Raycaster();
 const startPosition=playerPos.clone(),lastPosition=new THREE.Vector3();
-let siege=false;
+let siege=false, castle=false;
+const castleStart=new THREE.Vector3(0,27,122);
 let courseStage='gate',insideGate=false,towerArc=0;
 const courseHints={
   gate:['南の城門をくぐる','大通りに沿って、赤い屋根の高さまで下降。'],
@@ -95,9 +97,9 @@ function rebuildWorld(notify=true){
   for(const p of projectiles){scene.remove(p.mesh);p.mesh.geometry.dispose();p.mesh.material.dispose();}
   for(const e of effects){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();}
   effects=[];projectiles=[];particleData.length=0;humans=[];defenderViews=[];treeViews=[];
-  world=new World(7419,{catchRoof:lab&&catchRoof,defenses:siege ? 'siege' : !FLIGHT_DEBUG});
+  world=new World(7419,{castle,catchRoof:lab&&catchRoof,defenses:siege ? 'siege' : !FLIGHT_DEBUG});
   buildTerrain();buildBlocks();buildHumans();if(world.defenders.length)buildDefenders();buildTrees();
-  health=100;playerPos.copy(startPosition);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
+  health=100;playerPos.copy(castle ? castleStart : startPosition);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
   $('#missile-alert').hidden=true;
   resetCourse();resetAttacks();heroine.reset();
   if(active){elapsed=0;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
@@ -107,7 +109,8 @@ function rebuildWorld(notify=true){
 
 function showCourse(stage){
   courseStage=stage;
-  const [title,hint]=(siege ? siegeHints : courseHints)[stage];
+  const hints=castle ? castleHints : siege ? siegeHints : courseHints;
+  const [title,hint]=hints[stage];
   $('#course-title').textContent=title;$('#course-hint').textContent=hint;
 }
 function resetCourse(){
@@ -119,7 +122,24 @@ function crossedOpening(before,after,z){
   const x=lerp(before.x,after.x,t),altitude=lerp(before.y,after.y,t)-gate.ground;
   return altitude>=2&&altitude+.6<gateClearance(x);
 }
+function updateCastleCourse(before,after){
+  const arch=castleGates[courseStage];
+  function crosses(z,minX,maxX,minY,maxY){
+    if(before.z<=z || after.z>z)return false;
+    const t=(before.z-z)/(before.z-after.z);
+    const x=lerp(before.x,after.x,t), y=lerp(before.y,after.y,t);
+    return x>minX && x<maxX && y>=minY && y<maxY;
+  }
+  if(arch){
+    const left=arch.x-arch.halfWidth,right=arch.x+arch.halfWidth;
+    if(crosses(arch.z+5,left,right,18,arch.ceiling-.6))insideGate=true;
+    if(insideGate && crosses(arch.z-5,left,right,18,arch.ceiling-.6)){
+      insideGate=false;showCourse(arch.next);
+    }else if(after.z>arch.z+5 || after.x<=left || after.x>=right || after.y+.6>=arch.ceiling)insideGate=false;
+  }else if(courseStage==='climb' && crosses(-65,-56,56,52,Infinity))showCourse('clear');
+}
 function updateCourse(before,after){
+  if(castle){updateCastleCourse(before,after);return;}
   if(siege && courseStage!=='gate'){
     if(courseStage==='tower' && !world.defenders.some(d=>d.type==='mage' && d.alive))showCourse('clear');
     return;
@@ -151,7 +171,8 @@ function buildTerrain(){
     const wx=x0+2,wz=z0+2,turnRadius=Math.hypot(wx-westTower.x,wz-westTower.z);
     const avenue=Math.abs(wx)<8&&wz>=-10&&wz<102;
     const bend=wz<westTower.z&&Math.abs(turnRadius-32)<6;
-    if(avenue||bend||Math.abs(z0-16)<3&&Math.abs(x0)<66)c=(x+z)%3===0?0xa99372:0xb19e7d;
+    if(castle)c=courtyardColor(wx,wz)??c;
+    else if(avenue||bend||Math.abs(z0-16)<3&&Math.abs(x0)<66)c=(x+z)%3===0?0xa99372:0xb19e7d;
     if(h<world.originalHeights[i])c=world.originalHeights[i]-h<3?0x887655:0x7f8177;
     face([[x0,y,z0],[x0,y,z1],[x1,y,z1],[x1,y,z0]],c);
     const dirs=[[1,0],[0,1],[-1,0],[0,-1]];
@@ -889,6 +910,12 @@ function siegeDefender(){
   if(courseStage==='tower')return 'mage';
   return 'none';
 }
+function startCastle(){
+  castle=true;
+  rebuildWorld(false);
+  begin();
+  $('#course-name').textContent='白鷺城';
+}
 function startSiege(){
   siege=true;
   document.body.classList.add('siege');
@@ -896,7 +923,7 @@ function startSiege(){
   begin();
   $('#mode-label').textContent='迎撃戦';
 }
-function begin(asDemo=false){chaseVelocity.set(0,0,0);loopRecovery=null;maneuver=null;releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
+function begin(asDemo=false){chaseVelocity.set(0,0,0);loopRecovery=null;maneuver=null;releaseRemaining=0;heroine.reset();active=true;demo=asDemo;paused=false;elapsed=0;resetControls();avatar.rotation.set(0,0,0);avatarPose.rotation.set(0,0,0);$('#intro').hidden=true;$('#region').hidden=true;$('#hud').hidden=false;$('#demo-badge').hidden=!demo;$('#pause-screen').hidden=true;$('#mode-label').textContent=demo?'AUTO FLIGHT':'FREE FLIGHT';document.body.classList.add('playing');$('#touch-controls').hidden=demo;resetCourse();playerPos.copy(castle ? castleStart : startPosition);velocity.set(0,0,0);speed=0;yaw=0;pitch=FLIGHT_DEBUG?0:-.08;camera.position.copy(playerPos).add(new THREE.Vector3(0,6,17));}
 function setPaused(value){if(!active)return;paused=value;resetControls();beam.visible=beamCore.visible=impactGlow.visible=false;$('#touch-controls').hidden=paused||demo;$('#pause-screen').hidden=!paused;$('#pause').textContent=paused?'▷':'Ⅱ';$('#pause').setAttribute('aria-label',paused?'飛行を再開':'一時停止');if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function openGuide(){pausedBeforeGuide=paused;resetControls();paused=true;$('#touch-controls').hidden=true;beam.visible=beamCore.visible=impactGlow.visible=false;$('#guide').showModal();if(windGain)windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);if(beamGain)beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}
 function closeGuide(){$('#guide').close();paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;}
@@ -915,7 +942,7 @@ function frameLab(){
 const labIdle='破損の目安　瓦 2m ／ 木 6m ／ 石 12m';
 function setupLab(roof){
   if($('#guide').open)$('#guide').close();
-  siege=false;document.body.classList.remove('siege');
+  castle=false;siege=false;$('#course-name').textContent='城門コース';document.body.classList.remove('siege');
   lab=true;catchRoof=roof;labDropped=false;active=false;demo=false;paused=false;
   document.body.classList.remove('playing','boosting');document.body.classList.add('collapse-lab');
   for(const id of ['intro','region','hud','touch-controls','pause-screen'])$('#'+id).hidden=true;
@@ -946,6 +973,7 @@ $('#lab-break').onclick=breakTower;$('#lab-exit').onclick=leaveLab;
 function initAudio(){
   if(!audioCtx){audioCtx=new (window.AudioContext||window.webkitAudioContext)();const buf=audioCtx.createBuffer(1,audioCtx.sampleRate*2,audioCtx.sampleRate);const a=buf.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1);const src=audioCtx.createBufferSource();src.buffer=buf;src.loop=true;windFilter=audioCtx.createBiquadFilter();windFilter.type='lowpass';windFilter.frequency.value=400;windGain=audioCtx.createGain();windGain.gain.value=0;src.connect(windFilter).connect(windGain).connect(audioCtx.destination);src.start();const tone=audioCtx.createOscillator();tone.frequency.value=76;tone.type='sawtooth';const filter=audioCtx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=450;beamGain=audioCtx.createGain();beamGain.gain.value=0;tone.connect(filter).connect(beamGain).connect(audioCtx.destination);tone.start();}audioCtx.resume();
 }
+$('#start-castle').onclick=startCastle;
 $('#start-siege').onclick=startSiege;
 $('#start').onclick=()=>begin();$('#demo').onclick=()=>begin(true);$('#take-control').onclick=()=>{demo=false;resetControls();$('#demo-badge').hidden=true;$('#touch-controls').hidden=false;$('#mode-label').textContent='FREE FLIGHT';pitch=FLIGHT_DEBUG?0:-.08;toast('左パッドで上下・旋回 / 右ボタンを押して前進');};$('#reset').onclick=()=>rebuildWorld();$('#pause').onclick=()=>setPaused(!paused);$('#resume').onclick=()=>setPaused(false);$('#help').onclick=openGuide;$('#close-guide').onclick=closeGuide;$('#guide-play').onclick=closeGuide;$('#guide').addEventListener('cancel',()=>{paused=pausedBeforeGuide;$('#touch-controls').hidden=!active||paused||demo;});$('#god').onclick=()=>setCharacter(false);$('#demon').onclick=()=>setCharacter(true);
 $('#audio').onclick=()=>{initAudio();audioOn=!audioOn;$('#audio').setAttribute('aria-pressed',audioOn);$('#audio').setAttribute('aria-label',audioOn?'サウンドをオフ':'サウンドをオン');$('.mute-line').hidden=audioOn;if(!audioOn){windGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);beamGain.gain.setTargetAtTime(0,audioCtx.currentTime,.1);}};
@@ -986,6 +1014,6 @@ pad.addEventListener('pointermove',e=>{
   else movePad(e);
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])pad.addEventListener(event,e=>{if(e.pointerId!==padInput.pointerId)return;padInput.x=padInput.y=0;padInput.pointerId=null;if(event==='pointerup')sampleFlightTap(e.timeStamp);else resetFlightTaps();pad.classList.remove('engaged');$('#pad-knob').style.transform='translate(-50%, -50%)';});
-try{init();const q=new URLSearchParams(location.search);if(q.has('collapse'))setupLab(true);else if(q.has('demo'))begin(true);else if(q.has('siege'))startSiege();
+try{init();const q=new URLSearchParams(location.search);if(q.has('collapse'))setupLab(true);else if(q.has('demo'))begin(true);else if(q.has('siege'))startSiege();else if(q.has('castle'))startCastle();
   if(q.has('test'))window.__aether={get world(){return world;},get renderer(){return renderer;},get state(){return {active,paused,demo,flightDebug:FLIGHT_DEBUG,beamOn,attack,maneuver:maneuver?.kind??null,maneuverProgress:maneuver?.progress??0,cameraPosition:camera.position.toArray(),cameraRotation:camera.quaternion.toArray(),screenY:(1-playerPos.clone().project(camera).y)/2,hero:{motion:heroine.motion,frame:heroine.frame,screenX:(playerPos.clone().project(camera).x+1)/2,beamOrigin:beamOrigin.toArray()},storm:{enabled:companion.enabled,visible:companion.visible&&companion.body.visible,phase:companion.phase,pass:companion.pass,count:companion.count,last:companion.lastStrike,flash:companion.bolt.visible,rift:companion.rift.time,position:companion.socket.toArray()},aim:aim.toArray(),yaw,pitch,courseStage,attitude:{pitch:avatarPose.rotation.x,bank:avatarPose.rotation.z,heading:avatar.rotation.y},pad:{x:padInput.x,y:padInput.y},health,speed,velocity:velocity.toArray(),position:playerPos.toArray(),terrainVisible:scene.children.includes(terrain),defenderViews:defenderViews.length,projectiles:projectiles.length,stats:world.getStats(),fps};},impact:(x,y,z,r=6,p=90)=>world.impact(x,y,z,r,p),aimAt:(x,y,z)=>{const d=new THREE.Vector3(x,y,z).sub(playerPos).normalize();yaw=Math.atan2(-d.x,-d.z);pitch=clamp(Math.asin(d.y)+.28,-1.18,1.18);},teleport:(x,y,z)=>{playerPos.set(x,y,z);velocity.set(0,0,0);camera.position.set(x,y+6,z+16);},get projectiles(){return projectiles;}};
 }catch(error){fatal(error);}

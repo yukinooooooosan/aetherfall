@@ -94,6 +94,29 @@ try{
   console.log('Right touch step and left keyboard step passed; camera lag and recovery verified');
   await page.goto(new URL('?siege=1&test=1',baseURL).href);
   await wait(()=>window.__aether?.state.active && window.__aether.state.defenderViews===2);
+  await page.goto(testURL);
+  await page.locator('#start-castle').tap();
+  assert.equal(await page.locator('#course-name').innerText(),'白鷺城');
+  await page.keyboard.down('Space');
+  await wait(()=>window.__aether.state.courseStage==='court');
+  // Keep flying: bank right after the gate, then level out under the gallery.
+  await page.keyboard.down('KeyD');
+  await wait(()=>window.__aether.state.yaw<=-.58);
+  await page.keyboard.up('KeyD');
+  await wait(()=>window.__aether.state.position[0]>=17);
+  await page.keyboard.down('KeyA');
+  await wait(()=>window.__aether.state.yaw>=-.04);
+  await page.keyboard.up('KeyA');
+  await wait(()=>window.__aether.state.courseStage==='climb');
+  await page.keyboard.down('KeyW');
+  await wait(()=>window.__aether.state.courseStage==='clear');
+  await page.keyboard.up('KeyW');
+  await page.keyboard.up('Space');
+  await page.locator('#reset').tap();
+  assert.equal((await state()).courseStage,'gate');
+  await page.goto(new URL('?castle=1&test=1',baseURL).href);
+  await wait(()=>window.__aether?.state.active && document.querySelector('#course-name').textContent==='白鷺城');
+  console.log('Castle gates, courtyard turn, rising exit, replay and direct link passed');
   assert.deepEqual(errors,[]);
 } catch(error){
   console.error('Flight at failure:', await page.evaluate(()=>{

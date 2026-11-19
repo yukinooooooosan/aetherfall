@@ -27,13 +27,14 @@
       <h1 id="intro-title">空から、<br>世界に触れる。</h1>
       <p class="intro-copy">大通りを降下して、城門の先の青緑の塔へ。<br>左パッドで上下と旋回。右ボタンで前進。</p>
       <div class="intro-actions"><button id="start" class="primary">飛行をはじめる <span>↗</span></button><button id="demo" class="secondary">コースの見本を見る <span>▷</span></button></div>
+      <button id="start-castle" class="secondary">白鷺城を飛ぶ ↗</button>
       <button id="start-siege" class="secondary">城門迎撃戦を試す ↗</button>
       <button id="open-lab" class="secondary">塔の崩落を試す <span>↗</span></button>
       <p class="loading" id="loading">地上を創造しています…</p>
     </section>
     <aside id="region"><div class="eyebrow">THE FIRST REALM</div><h2>翠嶺の王国 <span>エルデ</span></h2><div class="region-line"></div><p>風の向くままに。翼の感触を確かめよう。</p></aside>
     <section id="hud" hidden>
-      <div class="objective"><div class="eyebrow">城門コース <span id="mode-label">FREE FLIGHT</span></div><h2 id="course-title">南の城門をくぐる</h2><p id="course-hint">大通りに沿って、赤い屋根の高さまで下降。</p><div class="stat-line" data-combat><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
+      <div class="objective"><div class="eyebrow"><b id="course-name">城門コース</b> <span id="mode-label">FREE FLIGHT</span></div><h2 id="course-title">南の城門をくぐる</h2><p id="course-hint">大通りに沿って、赤い屋根の高さまで下降。</p><div class="stat-line" data-combat><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
       <p id="missile-alert" role="status" hidden>誘導弾接近　↑ ↑ で宙返り</p>
       <div id="crosshair" hidden><span></span><i></i></div><div id="target-label" data-combat></div>
       <div class="telemetry"><div class="speed"><strong id="speed">0</strong><span>km/h</span><small>VELOCITY</small></div><div class="telemetry-divider"></div><div class="altitude"><small>ALTITUDE</small><strong><span id="altitude">0</span><em>m</em></strong></div><small id="flight-state">HOVERING</small><div class="shield" data-combat><div><span>神威</span><b id="health-label">100</b></div><div class="meter"><i id="health-bar"></i></div></div></div>
@@ -57,6 +58,6 @@
     <div id="pause-screen" hidden><div class="eyebrow">TAKE A BREATH</div><h2>風は、待っている。</h2><button id="resume" class="primary">飛行を再開 <span>↗</span></button></div>
     <div id="fatal" hidden role="alert"><h2>3D画面を開始できませんでした</h2><p id="fatal-message"></p><p>WebGL 2対応ブラウザで、ハードウェアアクセラレーションを有効にしてお試しください。</p></div>
   </main>
-  <script type="module" src="./js/game.js?v=step1"></script>
+  <script type="module" src="./js/game.js?v=castle1"></script>
 </body>
 </html>
