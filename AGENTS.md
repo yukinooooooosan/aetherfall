@@ -1,5 +1,5 @@
-# Three.js版の更新とSites公開
+# Three.js版の更新とGitHub Pages公開
 
-ゲームの変更を届けるときは、`npm test` と変更した遊び方のブラウザ検証を行う。両方が通ったら、`.openai/hosting.json` が指す既存のSitesプロジェクトへ `dist/` を反映し、公開URLで変更した遊び方を確認する。
+`main` にpushすると、GitHub Actionsの「Deploy game to GitHub Pages」がモデルテストと城門迎撃戦のブラウザテストを実行する。テストに通った `dist/` をPagesに公開し、公開URLでもブラウザテストを実行する。
 
-Sitesに公開できない環境では、テスト済みの配信ファイルをまとめ、公開が未完了であることと、残っている操作を伝える。
+公開結果はワークフローの実行結果とデプロイ先URLで確認する。公開できなかった場合は、失敗した段階と必要な対応を伝える。

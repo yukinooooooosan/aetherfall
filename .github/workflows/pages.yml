@@ -1,0 +1,74 @@
+name: Deploy game to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: Play the siege under the Pages project path
+        env:
+          GAME_BASE_URL: http://127.0.0.1:4173/aetherfall/
+        run: |
+          root=$(mktemp -d)
+          ln -s "$PWD/dist" "$root/aetherfall"
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory "$root" &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 --silent "$GAME_BASE_URL" --output /dev/null
+          node tests/siege.browser.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    outputs:
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - name: Publish tested files
+        id: publish
+        uses: actions/deploy-pages@v4
+
+  verify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Play the published siege
+        env:
+          GAME_BASE_URL: ${{ needs.deploy.outputs.url }}
+        run: node tests/siege.browser.mjs

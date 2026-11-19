@@ -3,5 +3,11 @@
   "version": "0.9.1",
   "private": true,
   "type": "module",
-  "scripts": {"start": "python3 -m http.server 4173 --directory dist", "test": "node --test tests/model.test.mjs"}
+  "scripts": {
+    "start": "python3 -m http.server 4173 --directory dist",
+    "test": "node --test tests/model.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.57.0"
+  }
 }

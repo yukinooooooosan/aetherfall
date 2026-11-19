@@ -32,6 +32,12 @@
 
 「誘導弾接近」の表示で、前進を押したまま左パッドを **上 → 中央 → 上** と素早く操作してください。キーボードでは W・W または ↑・↑ です。弾は接近すると金色に変わり、そのまま直進します。音をオンにすると警告音も鳴ります。回避したら塔へ向き直り、光線で頂上の足場を壊すとクリア。↻ または R で再挑戦できます。
 
+## GitHub Pagesで遊ぶ
+
+[城門迎撃戦を開く](https://yukinooooooosan.github.io/aetherfall/?siege=1) · [タイトル画面](https://yukinooooooosan.github.io/aetherfall/)
+
+初回はリポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定します。その後は `main` にpushするたびに、モデルとブラウザのテストが通った `dist/` を公開します。[デプロイ履歴](https://github.com/yukinooooooosan/aetherfall/actions/workflows/pages.yml) で公開結果と公開後の動作確認を確認できます。初回設定の後に再実行するときは **Run workflow** で `main` を選びます。
+
 ## 起動
 
 Python 3があれば、プロジェクトのフォルダで以下を実行してください。

@@ -1,5 +1,7 @@
-// Run against the local game server. The cloud image supplies Playwright and Chromium.
+// Use the same test against the local server or the published Pages project.
 import assert from 'node:assert/strict';
+const baseURL=process.env.GAME_BASE_URL || 'http://127.0.0.1:4173/';
+const testURL=new URL('?test=1',baseURL).href;
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({
   executablePath:process.env.CHROMIUM_PATH || undefined,
@@ -17,7 +19,7 @@ async function center(selector,id){
   return {x:x+width/2,y:y+height/2,id};
 }
 try{
-  await page.goto('http://127.0.0.1:4173/?test=1');
+  await page.goto(testURL);
   await page.locator('#start-siege').tap();
   assert.equal((await state()).defenderViews,2);
   const forward=await center('#forward-button',1), pad=await center('#flight-pad',2);
@@ -57,10 +59,12 @@ try{
   assert.equal(restarted.stats.defenders,2);
   assert.equal(restarted.projectiles,0);
   console.log('Beam silenced the tower; replay restored both defenders');
-  await page.goto('http://127.0.0.1:4173/?test=1');
+  await page.goto(testURL);
   await page.locator('#start').tap();
   assert.equal((await state()).stats.defenders,0);
   assert.equal(await page.locator('#missile-alert').isVisible(),false);
+  await page.goto(new URL('?siege=1&test=1',baseURL).href);
+  await wait(()=>window.__aether?.state.active && window.__aether.state.defenderViews===2);
   assert.deepEqual(errors,[]);
 } catch(error){
   console.error('Flight at failure:', await page.evaluate(()=>{
