@@ -6,7 +6,7 @@
   <meta name="description" content="城下町を低空で飛び、石の城門をくぐって青緑の塔を回る3D飛行コース。">
   <title>AETHERFALL — 神域の残響</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23c5a46b' d='m16 1 5 10 10 5-10 5-5 10-5-10-10-5 10-5z'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./style.css?v=0.9.1">
+  <link rel="stylesheet" href="./style.css?v=siege1">
 </head>
 <body class="flight-debug">
   <main id="game" aria-label="AETHERFALL 3D飛行ゲーム">
@@ -27,12 +27,14 @@
       <h1 id="intro-title">空から、<br>世界に触れる。</h1>
       <p class="intro-copy">大通りを降下して、城門の先の青緑の塔へ。<br>左パッドで上下と旋回。右ボタンで前進。</p>
       <div class="intro-actions"><button id="start" class="primary">飛行をはじめる <span>↗</span></button><button id="demo" class="secondary">コースの見本を見る <span>▷</span></button></div>
+      <button id="start-siege" class="secondary">城門迎撃戦を試す ↗</button>
       <button id="open-lab" class="secondary">塔の崩落を試す <span>↗</span></button>
       <p class="loading" id="loading">地上を創造しています…</p>
     </section>
     <aside id="region"><div class="eyebrow">THE FIRST REALM</div><h2>翠嶺の王国 <span>エルデ</span></h2><div class="region-line"></div><p>風の向くままに。翼の感触を確かめよう。</p></aside>
     <section id="hud" hidden>
       <div class="objective"><div class="eyebrow">城門コース <span id="mode-label">FREE FLIGHT</span></div><h2 id="course-title">南の城門をくぐる</h2><p id="course-hint">大通りに沿って、赤い屋根の高さまで下降。</p><div class="stat-line" data-combat><span>破壊 <b id="destroyed">0</b></span><span>燃焼 <b id="burning">0</b></span><span>避難 <b id="panicking">0</b></span></div></div>
+      <p id="missile-alert" role="status" hidden>誘導弾接近　↑ ↑ で宙返り</p>
       <div id="crosshair" hidden><span></span><i></i></div><div id="target-label" data-combat></div>
       <div class="telemetry"><div class="speed"><strong id="speed">0</strong><span>km/h</span><small>VELOCITY</small></div><div class="telemetry-divider"></div><div class="altitude"><small>ALTITUDE</small><strong><span id="altitude">0</span><em>m</em></strong></div><small id="flight-state">HOVERING</small><div class="shield" data-combat><div><span>神威</span><b id="health-label">100</b></div><div class="meter"><i id="health-bar"></i></div></div></div>
       <div class="map-panel"><div class="map-title"><span>ELDE / 地表観測</span><span id="fps">— FPS</span></div><canvas id="minimap" width="180" height="150" aria-label="街と自分の位置のミニマップ"></canvas><div class="map-key"><i></i> あなた <i data-combat></i><span data-combat>反撃拠点</span></div></div>
@@ -55,6 +57,6 @@
     <div id="pause-screen" hidden><div class="eyebrow">TAKE A BREATH</div><h2>風は、待っている。</h2><button id="resume" class="primary">飛行を再開 <span>↗</span></button></div>
     <div id="fatal" hidden role="alert"><h2>3D画面を開始できませんでした</h2><p id="fatal-message"></p><p>WebGL 2対応ブラウザで、ハードウェアアクセラレーションを有効にしてお試しください。</p></div>
   </main>
-  <script type="module" src="./js/game.js?v=0.9.1"></script>
+  <script type="module" src="./js/game.js?v=siege1"></script>
 </body>
 </html>

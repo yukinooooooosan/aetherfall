@@ -49,3 +49,7 @@
 #touch-controls .attacks button[aria-pressed=true]{background:#e5c992;color:#243b39}
 #touch-controls .forward-group{align-items:flex-end}
 @media(max-width:370px){#flight-pad{width:120px;height:120px}#touch-controls{left:10px;right:10px}}
+
+#start-siege{margin-right:18px}
+#missile-alert{position:fixed;top:36%;left:50%;transform:translateX(-50%);margin:0;padding:8px 14px;border:1px solid #dfb1ee;background:#32233ee8;color:#fff2fc;white-space:nowrap;font-size:13px;pointer-events:none}
+.siege.flight-debug .shield[data-combat]{display:block!important}

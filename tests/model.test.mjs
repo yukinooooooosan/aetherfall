@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {World} from '../dist/js/model.js';
+import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from '../dist/js/missile.js';
 import {DoubleTap,FlightManeuver} from '../dist/js/maneuvers.js';
 import {Vector3} from '../dist/vendor/three.core.js';
 
@@ -152,5 +153,53 @@ test('flip shot starts at the current camera, tracks close to the subject and ex
     turn.orbitOffset(1,15,out);
     const exit=.7+side*Math.PI;
     assert.ok(out.distanceTo(new Vector3(15*Math.sin(exit),5.6,15*Math.cos(exit)))<1e-8);
+  }
+});
+
+test('the siege switches attackers at the gate and losing the tower tip silences the mage',()=>{
+  const world=new World(7419,{defenses:'siege'});
+  const [mage,catapult]=['mage','catapult'].map(type=>world.defenders.find(d=>d.type===type));
+  assert.equal(world.defenders.length,2);
+  assert.equal(world.solidAt(mage.x,mage.y-1,mage.z),mage.support);
+  const player={x:0,y:26,z:8};
+  function shots(phase){
+    const events=[];
+    for(let i=0;i<40;i++){
+      world.tick(.05,player,null,phase);
+      events.push(...world.drainEvents().filter(e=>e.type==='shot'));
+    }
+    return events.map(e=>e.kind);
+  }
+  assert.deepEqual(shots('catapult'),['catapult']);
+  assert.deepEqual(shots('mage'),['mage']);
+  world.damage(mage.support,100);
+  assert.deepEqual(shots('mage'),[]);
+  assert.equal(mage.alive,false);
+  assert.equal(catapult.alive,true);
+});
+
+test('after warning, a straight flight is intercepted but a vertical loop clears the same shot',()=>{
+  for(const dt of [1/60,.08]){
+    for(const evade of [false,true]){
+      const position=new Vector3(0,24,-23), playerVelocity=new Vector3(0,0,-32);
+      const shot=new Vector3(-32,52,-10);
+      const velocity=missileCourse(shot,position,playerVelocity,new Vector3()).multiplyScalar(missileSpeed);
+      let committed=false, hit=false, move=null, reactionTime=0;
+      for(let time=0;time<7;time+=dt){
+        const previous=position.clone(), previousShot=shot.clone();
+        if(!committed)committed=guideMissile(shot,velocity,position,playerVelocity,dt);
+        if(committed)reactionTime+=dt;
+        if(evade && committed && reactionTime>=.24 && !move)move=new FlightManeuver('loop',position,0,32,1);
+        if(move && move.time<move.duration){
+          move.time=Math.min(move.duration,move.time+dt);
+          move.point(move.progress,position);
+        }else position.addScaledVector(playerVelocity,dt);
+        shot.addScaledVector(velocity,dt);
+        if(hitDuringFrame(previousShot,shot,previous,position,2.6)){hit=true;break;}
+      }
+      assert.equal(committed,true);
+      assert.equal(hit,!evade);
+      if(hit)assert.ok(reactionTime>=.9,'first shot allows time to react after warning');
+    }
   }
 });

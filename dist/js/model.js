@@ -103,10 +103,17 @@ export class World {
       this.humans.push({x,z,y:this.terrainHeight(x,z),struckAt:null,homeX:x,homeZ:z,dx:0,dz:0,panic:0,phase:this.rng()*6.28,speed:2.8+this.rng()*1.8});
     }
     if(!defenses)return;
-    for(const [type,x,z] of [['catapult',-54,15],['catapult',54,15],['catapult',-14,90],['mage',-12,-12],['mage',12,-12],['mage',0,42]]){
+    const siege = defenses === 'siege';
+    if(siege){
+      const support = this.blockAtGrid(westTower.x/2, (westTower.peak-2)/2, westTower.z/2);
+      this.defenders.push({type:'mage', x:westTower.x, y:support.y+1, z:westTower.z,
+        building:tower, support, cooldown:.85, alive:true, fired:0});
+    }
+    const sites = siege ? [['catapult',-20,18]] : [['catapult',-54,15],['catapult',54,15],['catapult',-14,90],['mage',-12,-12],['mage',12,-12],['mage',0,42]];
+    for(const [type,x,z] of sites){
       const by=this.terrainHeight(x,z),bid=this.building(type==='mage'?'魔導師の祭壇':'投石機',x,z);
       for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)this.addBlock(Math.round(x/2)+a,by/2,Math.round(z/2)+b,type==='mage'?1:0,bid);
-      this.defenders.push({type,x,y:by+2,z,cooldown:2+this.rng()*4,alive:true,building:bid,fired:0});
+      this.defenders.push({type,x,y:by+2,z,cooldown:siege ? .9 : 2+this.rng()*4,alive:true,building:bid,fired:0});
     }
   }
   makeCatchRoof(){
@@ -239,7 +246,7 @@ export class World {
     for(const id of this.dirtyBuildings)this.collapse.inspect(id);
     this.dirtyBuildings.clear();
   }
-  tick(dt,player,flybyVelocity){
+  tick(dt,player,flybyVelocity, activeDefense='all'){
     this.tickTime+=dt;this.supportClock+=dt;
     for(const id of [...this.burning]){
       const v=this.blocks[id],m=MATERIALS[v.mat];v.burn+=dt;
@@ -270,8 +277,10 @@ export class World {
       h.y=this.terrainHeight(h.x,h.z);
     }
     if(player)for(const d of this.defenders){
-      d.alive=this.buildings[d.building].blocks.some(n=>this.blocks[n].alive)&&this.terrainHeight(d.x,d.z)>=d.y-3;
-      if(!d.alive)continue;d.cooldown-=dt;
+      if(!d.alive)continue;
+      d.alive=d.support ? d.support.alive && !d.support.loose : this.buildings[d.building].blocks.some(n=>this.blocks[n].alive)&&this.terrainHeight(d.x,d.z)>=d.y-3;
+      if(!d.alive || (activeDefense!=='all' && activeDefense!==d.type))continue;
+      d.cooldown-=dt;
       if(d.cooldown<=0&&Math.hypot(d.x-player.x,d.z-player.z)<175&&player.y<150){d.cooldown=d.type==='mage'?4.2:6;d.fired++;this.events.push({type:'shot',kind:d.type,x:d.x,y:d.y+2,z:d.z,target:{x:player.x,y:player.y,z:player.z}});}
     }
   }
