@@ -1,4 +1,4 @@
-import {buildCastle,castleTerrain} from './castle.js';
+import {buildCastle,castleTerrain} from './castle.js?v=gate2';
 import {Collapse} from './collapse.js?v=0.5.0';
 
 // Engine-independent world state. Units are metres; +Y is up.
@@ -197,7 +197,7 @@ export class World {
     if(!v.alive)return;v.alive=false;this.collapse.damaged(v);this.unindexBlock(v);
     if(v.loose){this.looseCount--;v.body=null;}else this.grid.delete(key(v.gx,v.gy,v.gz));
     this.burning.delete(v.id);this.changed.add(v.id);this.dirtyBuildings.add(v.building);this.destroyed++;
-    this.events.push({type:'debris',x:v.x,y:v.y,z:v.z,mat:v.mat,color:v.color??MATERIALS[v.mat].color,reason});
+    this.events.push({type:'debris',building:v.building,x:v.x,y:v.y,z:v.z,mat:v.mat,color:v.color??MATERIALS[v.mat].color,reason});
   }
   ignite(v){if(!v.alive||!MATERIALS[v.mat].fuel||this.burning.has(v.id))return;v.burn=.001;this.burning.add(v.id);this.changed.add(v.id);this.ignited++;}
   carve(x,y,z,r){

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {GateDetails} from '../dist/js/gate-details.js';
 import {World} from '../dist/js/model.js';
 import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from '../dist/js/missile.js';
 import {DoubleTap,FlightManeuver} from '../dist/js/maneuvers.js';
-import {Vector3} from '../dist/vendor/three.core.js';
+import {Matrix4,Scene,Vector3} from '../dist/vendor/three.core.js';
 
 function fixture(){const w=new World(1);w.blocks=[];w.grid.clear();w.spatial.clear();w.buildings=[];w.humans=[];w.defenders=[];w.burning.clear();w.changed.clear();w.dirtyBuildings.clear();w.destroyed=0;w.events=[];return w;}
 test('a seeded island has reproducible terrain, buildings, citizens and six defenders',()=>{
@@ -233,4 +234,39 @@ test('castle starts supported, with an open approach across the moat and two fly
   const roof=w.blocks.find(b=>b.mat===2 && b.building===w.buildings.findIndex(t=>t.name==='白鷺天守'));
   w.damage(roof,100);
   assert.equal(roof.alive,false);
+});
+
+test('severing one main gate pier tips the roof toward that side after the beam stops',()=>{
+  for(const side of [-1,1]){
+    const w=new World(7419,{castle:true}),roof=w.solidAt(0,41,66);
+    const scene=new Scene(),details=new GateDetails(w,scene),shed=[];
+    const updateDetails=()=>{
+      for(const id of w.changed)details.update(w.blocks[id],(position,block)=>shed.push({x:position.x,axisZ:block.axisZ}));
+      w.changed.clear();
+    };
+    // Advance the impact point through the timber as the beam opens a cut.
+    for(let pulse=0;pulse<8;pulse++){
+      let z=68;
+      while(z>54 && !w.solidAt(side*11,26,z))z-=.25;
+      if(z<=54)break;
+      w.impact(side*11,26,z,5.8,53);
+      w.tick(.12,null,null);updateDetails();
+    }
+    for(let i=0;i<20;i++){w.tick(.05,null,null);updateDetails();}
+    assert.ok(roof.alive && roof.angle>.15 && side*roof.x>2);
+    assert.ok(Math.abs(roof.axisZ+side)<.05);
+    assert.ok(w.solidAt(-side*11,26,60));
+    assert.ok(shed.length>=4 && shed.every(tile=>side*tile.x>0 && tile.axisZ*side<0));
+    const lowerEave=w.blocks.find(b=>b.building===w.entranceBuilding && b.gx===side*8 && b.gz===33 && b.mat===2);
+    const caps=details.groups.get(lowerEave.id).pieces.filter(p=>p.cap);
+    assert.equal(caps.length,4);
+    for(const cap of caps){
+      const matrix=new Matrix4();
+      details.meshes[cap.batch].getMatrixAt(cap.index,matrix);
+      assert.equal(matrix.determinant(),0);
+    }
+    details.dispose();
+    assert.equal(scene.children.length,0);
+    assert.ok(w.drainEvents().some(e=>e.type==='debris' && e.building===w.entranceBuilding && e.mat===0));
+  }
 });

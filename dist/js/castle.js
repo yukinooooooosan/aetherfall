@@ -27,8 +27,9 @@ export function courtyardColor(x,z){
 
 export function buildCastle(world){
   // Each building has its own support graph, just like the destructible town.
-  function builder(name,x,z){
+  function builder(name,x,z,entrance=false){
     const id=world.building(name,x,z);
+    if(entrance)world.entranceBuilding=id;
     return (dx,level,dz,material,color)=>world.addBlock(x/2+dx,ground/2+level,z/2+dz,material,id,color);
   }
   function deck(put,y,rx,rz,material,color){
@@ -57,10 +58,14 @@ export function buildCastle(world){
     for(const dx of [-tip,tip])put(dx,y,0,2,gold);
   }
   function gatehouse(name,gate,color,roof){
-    const put=builder(name,gate.x,gate.z);
+    const entrance=gate===castleGates.gate;
+    const put=builder(name,gate.x,gate.z,entrance);
     const lintel=(gate.ceiling-ground)/2;
-    for(let y=0;y<lintel;y++)for(let z=-2;z<=2;z++)for(const x of [-6,-5,5,6])
+    for(let y=0;y<lintel;y++)for(let z=-2;z<=2;z++)for(const x of [-6,-5,5,6]){
+      // The main gate has two exposed timber piers on wider stone plinths.
+      if(entrance && y>=2 && Math.abs(z)>1)continue;
       put(x,y,z,y<2?1:0,y<2?stone:color);
+    }
     for(let y=lintel;y<lintel+3;y++)deck(put,y,7,2,y===lintel?0:1,y===lintel?color:plaster);
     deck(put,lintel+3,8,3,2,roof);
     deck(put,lintel+4,7,2,2,roof);

@@ -3,8 +3,9 @@ import { DoubleTap, FlightManeuver } from './maneuvers.js?v=step1';
 import { StormCompanion } from './companion.js?v=0.9.1';
 import { Heroine } from './heroine.js?v=step1';
 import {guideMissile, hitDuringFrame, missileCourse, missileSpeed} from './missile.js';
-import {castleGates,castleHints,courtyardColor} from './castle.js';
-import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=castle1';
+import {GateDetails} from './gate-details.js';
+import {castleGates,castleHints,courtyardColor} from './castle.js?v=gate2';
+import { World, MATERIALS, damageStage, BLOCK, random, gate, gateClearance, westTower } from './model.js?v=gate2';
 
 const $=s=>document.querySelector(s),clamp=THREE.MathUtils.clamp,lerp=THREE.MathUtils.lerp;
 const canvas=$('#world'),keys=new Set(),rng=random(829);
@@ -16,7 +17,7 @@ const flightKeys=new Set(['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','
 function resetFlightTaps(){verticalTaps.reset();horizontalTaps.reset();}
 let maneuver=null,touchForward=false,loopRecovery=null;
 function resetControls(){resetFlightTaps();touchForward=false;keys.clear();pointerDown=false;rightDown=false;padInput.x=padInput.y=0;padInput.pointerId=null;$('#pad-knob').style.transform='translate(-50%, -50%)';$('#flight-pad').classList.remove('engaged');for(const b of document.querySelectorAll('[data-key]')){b.classList.remove('pressed');b.setAttribute('aria-pressed','false');}}
-let renderer,scene,camera,world,terrain,blockMesh,forest,treeTrunks,treeLeaves,humans=[],defenderViews=[],treeViews=[],effects=[],projectiles=[];
+let renderer,scene,camera,world,terrain,blockMesh,gateDetails,forest,treeTrunks,treeLeaves,humans=[],defenderViews=[],treeViews=[],effects=[],projectiles=[];
 let active=false,paused=false,demo=false,demon=false,beamOn=false,pointerDown=false,rightDown=false,audioOn=false;
 let pausedBeforeGuide=false,lab=false,catchRoof=true,labDropped=false;
 let elapsed=0,fireClock=0,simClock=0,hudClock=0,toastClock=0,hitClock=0,frameCount=0,fps=60,lastHudTime=0;
@@ -90,6 +91,7 @@ function init(){
 
 function rebuildWorld(notify=true){
   if(terrain){scene.remove(terrain);terrain.geometry.dispose();terrain.material.dispose();terrain=null;}
+  gateDetails?.dispose();gateDetails=null;
   if(blockMesh){scene.remove(blockMesh);blockMesh.dispose();blockMesh.geometry.dispose();blockMesh.material.dispose();}
   for(const h of humans){scene.remove(h.sprite);h.sprite.material.dispose();}
   for(const d of defenderViews){scene.remove(d.group);d.group.traverse(o=>{if(o.isMesh || o.isSprite){if(o.isMesh)o.geometry.dispose();o.material.dispose();}});}
@@ -98,7 +100,9 @@ function rebuildWorld(notify=true){
   for(const e of effects){scene.remove(e.mesh);e.mesh.geometry.dispose();e.mesh.material.dispose();}
   effects=[];projectiles=[];particleData.length=0;humans=[];defenderViews=[];treeViews=[];
   world=new World(7419,{castle,catchRoof:lab&&catchRoof,defenses:siege ? 'siege' : !FLIGHT_DEBUG});
-  buildTerrain();buildBlocks();buildHumans();if(world.defenders.length)buildDefenders();buildTrees();
+  buildTerrain();buildBlocks();
+  if(castle)gateDetails=new GateDetails(world,scene);
+  buildHumans();if(world.defenders.length)buildDefenders();buildTrees();
   health=100;playerPos.copy(castle ? castleStart : startPosition);velocity.set(0,0,0);yaw=0;pitch=FLIGHT_DEBUG?0:-.08;speed=0;fireClock=0;hitClock=0;resetControls();beamOn=false;
   $('#missile-alert').hidden=true;
   resetCourse();resetAttacks();heroine.reset();
@@ -286,6 +290,7 @@ function buildBlocks(){
 function updateBlocks(){
   const tiles=blockMesh.geometry.attributes.crackTile;
   for(const id of world.changed){const b=world.blocks[id],tile=damageTile(b);
+    gateDetails?.update(b,shedGateTile);
     if(tiles.getX(id)!==tile){tiles.setX(id,tile);tiles.needsUpdate=true;}
     if(!b.alive){temp.position.set(b.x,-1000,b.z);temp.scale.setScalar(0);temp.updateMatrix();blockMesh.setMatrixAt(id,temp.matrix);}else{
     temp.position.set(b.x,b.y,b.z);temp.scale.setScalar(1);temp.rotation.set(0,0,0);
@@ -376,6 +381,12 @@ function emit(x,y,z,color,amount=1,force=7,kind='debris'){
     const f=force*(.3+rng());particleData.push({x,y,z,vx:(rng()-.5)*f,vy:kind==='fire'?4+rng()*5:rng()*f,vz:(rng()-.5)*f,life:kind==='fire'?.6+rng()*.6:1.2+rng()*1.2,max:2,size:kind==='fire'?.35+rng()*.65:.2+rng()*.6,color,kind,rotation:rng()*6});
   }
 }
+function shedGateTile(position,block,face,color){
+  if(particleData.length>=particleCapacity)particleData.shift();
+  const speed=3+rng()*3;
+  particleData.push({x:position.x,y:position.y,z:position.z,vx:-block.axisZ*speed,vy:-1,
+    vz:block.axisX*speed+face*(2+rng()*2),kind:'tile',size:.65+rng()*.2,rotation:rng(),color,life:2.6});
+}
 function impactRing(x,y,z,r,color=demon?0xd19deb:0xffe7a9){const m=mesh(new THREE.RingGeometry(.8,1,32),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));m.rotation.x=-Math.PI/2;m.position.set(x,Math.max(y+.2,world.terrainHeight(x,z)+.15),z);effects.push({mesh:m,life:.55,max:.55,r});}
 function playImpact(){if(!audioCtx||!audioOn)return;const osc=audioCtx.createOscillator(),g=audioCtx.createGain();osc.type='sine';osc.frequency.setValueAtTime(120,audioCtx.currentTime);osc.frequency.exponentialRampToValueAtTime(35,audioCtx.currentTime+.18);g.gain.setValueAtTime(.09,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.23);osc.connect(g).connect(audioCtx.destination);osc.start();osc.stop(audioCtx.currentTime+.25);}
 function warnMissile(){
@@ -398,8 +409,10 @@ function processEvents(){
   let debrisCount=0;
   for(const e of world.drainEvents()){
     if(e.type==='debris'&&debrisCount++<95){
-      const landing=e.reason==='landing',kind=landing?['splinter','dust','tile'][e.mat]:'debris';
-      emit(e.x,e.y,e.z,kind==='dust'?0xbeaf94:e.color,landing?4:1,landing?7:10,kind);
+      const materialDebris=e.reason==='landing' || e.building===world.entranceBuilding;
+      const kind=materialDebris?['splinter','dust','tile'][e.mat]:'debris';
+      const color=kind==='dust'?0xbeaf94:kind==='splinter'?0xc28e60:e.color;
+      emit(e.x,e.y,e.z,color,materialDebris?4:1,e.reason==='landing'?7:10,kind);
     }
     if(e.type==='impact'&&e.effect==='lightning'){
       emit(e.x,e.y+.12,e.z,0x9aeaff,14,10,'spark');impactRing(e.x,e.y,e.z,e.r*.7,0x63dcff);playImpact();

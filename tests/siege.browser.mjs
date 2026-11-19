@@ -117,6 +117,15 @@ try{
   await page.goto(new URL('?castle=1&test=1',baseURL).href);
   await wait(()=>window.__aether?.state.active && document.querySelector('#course-name').textContent==='白鷺城');
   console.log('Castle gates, courtyard turn, rising exit, replay and direct link passed');
+  await page.evaluate(()=>{
+    window.gateRoof=window.__aether.world.solidAt(0,41,66);
+    window.__aether.teleport(11,31,75);
+  });
+  await page.locator('#laser-button').tap();
+  await wait(()=>window.gateRoof.angle>.14 && window.gateRoof.x>1);
+  await page.locator('#reset').tap();
+  assert.ok(await page.evaluate(()=>window.__aether.world.solidAt(0,41,66)?.alive && window.__aether.world.looseCount===0));
+  console.log('Main gate roof tilted toward the laser cut and reset restored the gate');
   assert.deepEqual(errors,[]);
 } catch(error){
   console.error('Flight at failure:', await page.evaluate(()=>{
